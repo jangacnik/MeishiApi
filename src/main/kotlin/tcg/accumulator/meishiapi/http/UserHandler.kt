@@ -4,6 +4,7 @@ import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
 import tcg.accumulator.meishiapi.model.Role
+import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User
 import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
@@ -56,6 +57,22 @@ class UserHandler(
         }
     }
 
+    fun updateStatus(ctx: RoutingContext) {
+        launch(ctx) {
+            val id = pathId(ctx)
+            val body = ctx.body().asJsonObject() ?: throw ApiException(400, "request body required")
+            val status = try {
+                Status.valueOf(body.getString("status"))
+            } catch (e: Exception) {
+                throw ApiException(400, "status must be ACTIVE or FROZEN")
+            }
+            if (!repository.updateStatus(id, status)) {
+                throw ApiException(404, "user not found")
+            }
+            ctx.response().setStatusCode(204).end()
+        }
+    }
+
     fun delete(ctx: RoutingContext) {
         launch(ctx) {
             val id = pathId(ctx)
@@ -76,6 +93,7 @@ class UserHandler(
         .put("id", user.id.toString())
         .put("nickname", user.nickname)
         .put("role", user.role.name)
+        .put("status", user.status.name)
         .put("activated", user.isActivated)
         .put("createdAt", user.createdAt.toString())
 }

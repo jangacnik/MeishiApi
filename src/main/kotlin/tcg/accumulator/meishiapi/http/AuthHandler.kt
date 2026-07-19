@@ -2,6 +2,7 @@ package tcg.accumulator.meishiapi.http
 
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
+import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
@@ -48,9 +49,17 @@ class AuthHandler(
                 ?: throw ApiException(400, "password required")
 
             val record = repository.findByNickname(nickname)
-            if (record == null || record.activatedAt == null || !hasher.verify(record.passwordHash, password)) {
+            if (record == null || record.activatedAt == null) {
                 throw ApiException(401, "invalid nickname or password")
             }
+            if (record.status == Status.FROZEN) {
+                throw ApiException(403, "account frozen after too many failed login attempts - contact an admin")
+            }
+            if (!hasher.verify(record.passwordHash, password)) {
+                repository.registerFailedLoginAttempt(record.id)
+                throw ApiException(401, "invalid nickname or password")
+            }
+            repository.resetFailedLoginAttempts(record.id)
 
             val token = jwt.generateToken(record.id, record.nickname!!, record.role)
             ctx.response().putHeader("content-type", "application/json")

@@ -73,6 +73,7 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
         router.get("/api/users").handler(users::list)
         router.post("/api/users").handler(users::create)
         router.patch("/api/users/:id").handler(users::updateRole)
+        router.patch("/api/users/:id/status").handler(users::updateStatus)
         router.delete("/api/users/:id").handler(users::delete)
 
         return router
