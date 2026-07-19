@@ -10,8 +10,10 @@ COPY src src
 RUN ./gradlew --no-daemon installDist
 
 FROM eclipse-temurin:21-jre
+RUN useradd --system --create-home --shell /usr/sbin/nologin meishi
 WORKDIR /app
-COPY --from=build /app/build/install/MeishiApi ./
+COPY --from=build --chown=meishi:meishi /app/build/install/MeishiApi ./
+USER meishi
 
 EXPOSE 8080
 ENTRYPOINT ["./bin/MeishiApi"]

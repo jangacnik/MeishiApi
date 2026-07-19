@@ -1,3 +1,6 @@
+# Local development stack. All credentials below are placeholders for a
+# throwaway local Postgres + dev JWT secret - override every one of them
+# (env vars or a docker-compose.override.yml) before deploying anywhere real.
 services:
   postgres:
     image: postgres:16
