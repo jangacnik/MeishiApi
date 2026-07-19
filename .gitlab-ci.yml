@@ -1,0 +1,4 @@
+include:
+  - project: 'devops/ci-templates'
+    ref: main
+    file: '/templates/full.yml'
