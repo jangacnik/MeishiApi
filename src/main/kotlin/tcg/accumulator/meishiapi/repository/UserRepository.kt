@@ -105,12 +105,9 @@ class UserRepository(private val pool: Pool) {
         return result.rowCount() > 0
     }
 
-    suspend fun countAdmins(): Int {
-        val row = pool.query("SELECT count(*) AS n FROM users WHERE role = 'ADMIN'").execute().coAwait().first()
-        return row.getInteger("n")
-    }
-
-    suspend fun seedAdmin(nickname: String, passwordHash: String) {
+    /** Creates [nickname] as an ADMIN if no user with that nickname exists yet; otherwise a no-op. */
+    suspend fun ensureAdminExists(nickname: String, passwordHash: String) {
+        if (findByNickname(nickname) != null) return
         pool.preparedQuery(
             "INSERT INTO users (nickname, password_hash, role, activated_at) VALUES ($1, $2, 'ADMIN', now())",
         ).execute(Tuple.of(nickname, passwordHash)).coAwait()

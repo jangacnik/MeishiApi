@@ -32,7 +32,7 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
             val hasher = PasswordHasher(vertx)
             val jwt = JwtService(vertx, config.jwtSecret)
 
-            seedAdminIfMissing(repository, hasher, config)
+            seedConfiguredAdmins(repository, hasher, config)
 
             val router = buildRouter(repository, hasher, jwt)
 
@@ -50,11 +50,11 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
         return promise.future()
     }
 
-    private suspend fun seedAdminIfMissing(repository: UserRepository, hasher: PasswordHasher, config: AppConfig) {
-        if (repository.countAdmins() == 0) {
-            repository.seedAdmin(config.adminNickname, hasher.hash(config.adminPassword))
-            log.info("seeded initial admin user '${config.adminNickname}'")
+    private suspend fun seedConfiguredAdmins(repository: UserRepository, hasher: PasswordHasher, config: AppConfig) {
+        for (admin in config.adminUsers) {
+            repository.ensureAdminExists(admin.nickname, hasher.hash(admin.password))
         }
+        log.info("ensured ${config.adminUsers.size} config-provisioned admin(s) exist")
     }
 
     private fun buildRouter(repository: UserRepository, hasher: PasswordHasher, jwt: JwtService): Router {

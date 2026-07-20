@@ -28,8 +28,7 @@ services:
       DB_USER: meishi
       DB_PASSWORD: meishi
       JWT_SECRET: change-me-in-production
-      ADMIN_NICKNAME: admin
-      ADMIN_PASSWORD: change-me
+      ADMIN_USERS: '[{"nickname":"admin","password":"change-me"}]'
       HTTP_PORT: 8080
     ports:
       - "8080:8080"
