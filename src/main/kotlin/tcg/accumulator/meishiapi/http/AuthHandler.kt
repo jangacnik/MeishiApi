@@ -26,6 +26,9 @@ class AuthHandler(
             val password = body.getString("password")?.takeIf { it.isNotBlank() }
                 ?: throw ApiException(400, "password required")
 
+            // activatedAt gates reuse - it's what makes a key single-use. There's
+            // no separate "used" flag; the invited user setting their own
+            // nickname/password via activate() is what sets it.
             val record = repository.findByActivationKey(activationKey)
                 ?: throw ApiException(409, "invalid activation key")
             if (record.activatedAt != null) {

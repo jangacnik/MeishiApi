@@ -68,6 +68,13 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
 
         val users = UserHandler(repository, jwt)
         val jwtAuthHandler = JWTAuthHandler.create(jwt.auth)
+
+        // Registered before the admin-only wildcard below so it's matched
+        // first and ends the response - any authenticated user (not just
+        // admins) can resolve their own identity this way.
+        router.get("/api/users/me").handler(jwtAuthHandler)
+        router.get("/api/users/me").handler(users::me)
+
         router.route("/api/users*").handler(jwtAuthHandler)
         router.route("/api/users*").handler(users::requireAdmin)
         router.get("/api/users").handler(users::list)

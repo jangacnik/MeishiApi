@@ -23,6 +23,25 @@ class UserHandler(
         ctx.next()
     }
 
+    /**
+     * Resolves the caller's own identity from their JWT claims - no DB lookup,
+     * same "trust the token" tradeoff as [requireAdmin]. Other services (e.g.
+     * OmiyageApi) call this to turn a bearer token into an id/nickname/role
+     * without needing MeishiApi's JWT secret themselves.
+     */
+    fun me(ctx: RoutingContext) {
+        val principal = ctx.user()?.principal()
+        if (principal == null) {
+            ctx.fail(401, ApiException(401, "unauthenticated"))
+            return
+        }
+        val json = JsonObject()
+            .put("id", principal.getString("sub"))
+            .put("nickname", principal.getString("nickname"))
+            .put("role", principal.getString("role"))
+        ctx.response().putHeader("content-type", "application/json").end(json.encode())
+    }
+
     fun list(ctx: RoutingContext) {
         launch(ctx) {
             val users = repository.listAll()
