@@ -12,6 +12,7 @@ repositories {
 
 val vertxVersion = "5.1.2"
 val flywayVersion = "10.20.0"
+val otelVersion = "1.44.1"
 
 dependencies {
     implementation("io.vertx:vertx-core:$vertxVersion")
@@ -19,6 +20,7 @@ dependencies {
     implementation("io.vertx:vertx-pg-client:$vertxVersion")
     implementation("io.vertx:vertx-auth-jwt:$vertxVersion")
     implementation("io.vertx:vertx-lang-kotlin-coroutines:$vertxVersion")
+    implementation("io.vertx:vertx-opentelemetry:$vertxVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
 
     implementation("org.flywaydb:flyway-core:$flywayVersion")
@@ -27,7 +29,17 @@ dependencies {
 
     implementation("ch.qos.logback:logback-classic:1.5.6")
 
+    implementation("io.arrow-kt:arrow-core:1.2.4")
+
+    implementation("io.opentelemetry:opentelemetry-api:$otelVersion")
+    implementation("io.opentelemetry:opentelemetry-sdk:$otelVersion")
+    implementation("io.opentelemetry:opentelemetry-exporter-logging:$otelVersion")
+    implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:$otelVersion")
+
     testImplementation(kotlin("test"))
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("io.vertx:vertx-junit5:$vertxVersion")
+    testImplementation("io.vertx:vertx-web-client:$vertxVersion")
 }
 
 kotlin {

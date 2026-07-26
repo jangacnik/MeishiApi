@@ -1,0 +1,173 @@
+package tcg.accumulator.meishiapi.http
+
+import io.vertx.core.Vertx
+import io.vertx.core.json.JsonObject
+import io.vertx.ext.web.client.WebClient
+import io.vertx.junit5.VertxExtension
+import io.vertx.kotlin.coroutines.coAwait
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.ExtendWith
+import tcg.accumulator.meishiapi.model.Role
+import tcg.accumulator.meishiapi.repository.FakeUserRepository
+import tcg.accumulator.meishiapi.security.JwtService
+import tcg.accumulator.meishiapi.security.PasswordHasher
+import java.util.UUID
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+@ExtendWith(VertxExtension::class)
+class UserHandlerTest {
+
+    private data class Harness(val repo: FakeUserRepository, val jwt: JwtService, val client: WebClient, val port: Int)
+
+    private suspend fun harness(vertx: Vertx): Harness {
+        val repo = FakeUserRepository()
+        val hasher = PasswordHasher(vertx)
+        val jwt = JwtService(vertx, "test-secret")
+        val router = buildRouter(vertx, repo, hasher, jwt)
+        val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
+        return Harness(repo, jwt, WebClient.create(vertx), server.actualPort())
+    }
+
+    private suspend fun adminToken(h: Harness): String {
+        val (id, _) = h.repo.create(Role.ADMIN)
+        h.repo.activate(id, "admin", "hash")
+        return h.jwt.generateToken(id, "admin", Role.ADMIN)
+    }
+
+    private suspend fun userToken(h: Harness): String {
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", "hash")
+        return h.jwt.generateToken(id, "bob", Role.USER)
+    }
+
+    @Test
+    fun `list requires an admin token`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val response = h.client.get(h.port, "localhost", "/api/users").send().coAwait()
+        assertEquals(401, response.statusCode())
+    }
+
+    @Test
+    fun `list rejects a non-admin token`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+        val response = h.client.get(h.port, "localhost", "/api/users")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+        assertEquals(403, response.statusCode())
+    }
+
+    @Test
+    fun `list returns all users for an admin`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        h.repo.create(Role.USER)
+
+        val response = h.client.get(h.port, "localhost", "/api/users")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(200, response.statusCode())
+        assertEquals(2, response.bodyAsJsonArray().size())
+    }
+
+    @Test
+    fun `create adds a user and returns its activation key`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+
+        val response = h.client.post(h.port, "localhost", "/api/users")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("role", "USER")).coAwait()
+
+        assertEquals(201, response.statusCode())
+        assertTrue(response.bodyAsJsonObject().containsKey("activationKey"))
+    }
+
+    @Test
+    fun `create with an invalid role is rejected`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+
+        val response = h.client.post(h.port, "localhost", "/api/users")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("role", "NOPE")).coAwait()
+
+        assertEquals(400, response.statusCode())
+    }
+
+    @Test
+    fun `updateRole changes an existing user's role`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        val (id, _) = h.repo.create(Role.USER)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/$id")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("role", "ADMIN")).coAwait()
+
+        assertEquals(204, response.statusCode())
+    }
+
+    @Test
+    fun `updateRole for a missing user returns 404`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/${UUID.randomUUID()}")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("role", "ADMIN")).coAwait()
+
+        assertEquals(404, response.statusCode())
+    }
+
+    @Test
+    fun `updateRole with an invalid id is rejected`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/not-a-uuid")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("role", "ADMIN")).coAwait()
+
+        assertEquals(400, response.statusCode())
+    }
+
+    @Test
+    fun `updateStatus freezes a user`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        val (id, _) = h.repo.create(Role.USER)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/$id/status")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("status", "FROZEN")).coAwait()
+
+        assertEquals(204, response.statusCode())
+    }
+
+    @Test
+    fun `delete removes a user`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        val (id, _) = h.repo.create(Role.USER)
+
+        val response = h.client.delete(h.port, "localhost", "/api/users/$id")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(204, response.statusCode())
+        assertEquals(0, h.repo.listAll().count { u -> u.id == id })
+    }
+
+    @Test
+    fun `delete for a missing user returns 404`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+
+        val response = h.client.delete(h.port, "localhost", "/api/users/${UUID.randomUUID()}")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(404, response.statusCode())
+    }
+}
