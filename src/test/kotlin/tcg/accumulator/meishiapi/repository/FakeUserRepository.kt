@@ -52,6 +52,8 @@ class FakeUserRepository : UserRepository {
         record.activatedAt = OffsetDateTime.now()
     }
 
+    override suspend fun findById(id: UUID): User? = byId[id]?.toUser()
+
     override suspend fun listAll(): List<User> =
         byId.values.sortedBy { it.createdAt }.map { it.toUser() }
 

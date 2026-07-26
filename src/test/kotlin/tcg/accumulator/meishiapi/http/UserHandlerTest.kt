@@ -44,6 +44,44 @@ class UserHandlerTest {
     }
 
     @Test
+    fun `me returns the caller's own record without requiring admin`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", "hash")
+        val token = h.jwt.generateToken(id, "bob", Role.USER)
+
+        val response = h.client.get(h.port, "localhost", "/api/users/me")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(200, response.statusCode())
+        val body = response.bodyAsJsonObject()
+        assertEquals(id.toString(), body.getString("id"))
+        assertEquals("bob", body.getString("nickname"))
+        assertEquals("USER", body.getString("role"))
+    }
+
+    @Test
+    fun `me requires a token`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val response = h.client.get(h.port, "localhost", "/api/users/me").send().coAwait()
+        assertEquals(401, response.statusCode())
+    }
+
+    @Test
+    fun `me for a deleted user returns 404`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", "hash")
+        val token = h.jwt.generateToken(id, "bob", Role.USER)
+        h.repo.delete(id)
+
+        val response = h.client.get(h.port, "localhost", "/api/users/me")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(404, response.statusCode())
+    }
+
+    @Test
     fun `list requires an admin token`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx)
         val response = h.client.get(h.port, "localhost", "/api/users").send().coAwait()

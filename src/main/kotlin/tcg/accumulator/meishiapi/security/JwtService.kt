@@ -33,4 +33,6 @@ class JwtService(vertx: Vertx, secret: String) {
     }
 
     fun roleOf(principal: JsonObject): Role = Role.valueOf(principal.getString("role"))
+
+    fun subjectOf(principal: JsonObject): UUID = UUID.fromString(principal.getString("sub"))
 }

@@ -21,6 +21,7 @@ interface UserRepository {
     suspend fun create(role: Role): Pair<UUID, UUID>
     suspend fun findByActivationKey(activationKey: UUID): AuthRecord?
     suspend fun findByNickname(nickname: String): AuthRecord?
+    suspend fun findById(id: UUID): User?
     suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit>
     suspend fun listAll(): List<User>
     suspend fun updateRole(id: UUID, role: Role): Boolean

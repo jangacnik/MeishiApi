@@ -63,6 +63,14 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         }
     }
 
+    override suspend fun findById(id: UUID): User? {
+        log.trace("lookup by id={}", id)
+        val rows = pool.preparedQuery(
+            "SELECT id, nickname, role, status, activation_key, activated_at, created_at FROM users WHERE id = $1",
+        ).execute(Tuple.of(id)).coAwait()
+        return rows.firstOrNull()?.let(::toUser)
+    }
+
     override suspend fun listAll(): List<User> {
         log.trace("list all users")
         val rows = pool.query(

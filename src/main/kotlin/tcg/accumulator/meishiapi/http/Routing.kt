@@ -24,6 +24,11 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
 
     val users = UserHandler(repository, jwt)
     val jwtAuthHandler = JWTAuthHandler.create(jwt.auth)
+
+    // Self-lookup: registered ahead of the admin-only wildcard below so any authenticated
+    // user (not just admins) can read their own record.
+    router.get("/api/users/me").handler(jwtAuthHandler).handler(users::me)
+
     router.route("/api/users*").handler(jwtAuthHandler)
     router.route("/api/users*").handler(users::requireAdmin)
     router.get("/api/users").handler(users::list)

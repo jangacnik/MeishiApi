@@ -28,6 +28,14 @@ class UserHandler(
         ctx.next()
     }
 
+    fun me(ctx: RoutingContext) = respond(ctx) {
+        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
+        val id = jwt.subjectOf(principal)
+        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        log.trace("self lookup for {}", id)
+        JsonResult(toJson(user))
+    }
+
     fun list(ctx: RoutingContext) = respond(ctx) {
         val users = repository.listAll()
         log.trace("listed {} users", users.size)
