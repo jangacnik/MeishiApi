@@ -27,6 +27,9 @@ interface UserRepository {
     suspend fun updateRole(id: UUID, role: Role): Boolean
     suspend fun updateStatus(id: UUID, status: Status): Boolean
 
+    /** Partially updates profile columns. Keys are column names; only the given keys are touched. */
+    suspend fun updateProfile(id: UUID, fields: Map<String, String?>): Boolean
+
     /** Records a failed login attempt, freezing the account once it hits the threshold. */
     suspend fun registerFailedLoginAttempt(id: UUID)
     suspend fun resetFailedLoginAttempts(id: UUID)

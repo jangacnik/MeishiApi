@@ -36,6 +36,16 @@ class UserHandler(
         JsonResult(toJson(user))
     }
 
+    fun updateProfile(ctx: RoutingContext) = respond(ctx) {
+        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
+        val id = jwt.subjectOf(principal)
+        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
+        repository.updateProfile(id, profileFieldsOf(body))
+        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        log.trace("self profile update for {}", id)
+        JsonResult(toJson(user))
+    }
+
     fun list(ctx: RoutingContext) = respond(ctx) {
         val users = repository.listAll()
         log.trace("listed {} users", users.size)
@@ -85,6 +95,23 @@ class UserHandler(
     private fun Raise<AppError>.pathId(ctx: RoutingContext): UUID =
         parseUuidOrNull(ctx.pathParam("id")) ?: raise(AppError.BadRequest("invalid id"))
 
+    private val profileFieldColumns = mapOf(
+        "email" to "email",
+        "phone" to "phone",
+        "firstName" to "first_name",
+        "lastName" to "last_name",
+        "addressLine1" to "address_line1",
+        "addressLine2" to "address_line2",
+        "postalCode" to "postal_code",
+        "city" to "city",
+        "country" to "country",
+    )
+
+    private fun profileFieldsOf(body: JsonObject): Map<String, String?> =
+        profileFieldColumns.entries
+            .filter { (jsonKey, _) -> body.containsKey(jsonKey) }
+            .associate { (jsonKey, column) -> column to body.getString(jsonKey) }
+
     private fun toJson(user: User) = JsonObject()
         .put("id", user.id.toString())
         .put("nickname", user.nickname)
@@ -92,4 +119,13 @@ class UserHandler(
         .put("status", user.status.name)
         .put("activated", user.isActivated)
         .put("createdAt", user.createdAt.toString())
+        .put("email", user.email)
+        .put("phone", user.phone)
+        .put("firstName", user.firstName)
+        .put("lastName", user.lastName)
+        .put("addressLine1", user.addressLine1)
+        .put("addressLine2", user.addressLine2)
+        .put("postalCode", user.postalCode)
+        .put("city", user.city)
+        .put("country", user.country)
 }

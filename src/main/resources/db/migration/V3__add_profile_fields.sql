@@ -1,0 +1,9 @@
+ALTER TABLE users ADD COLUMN email varchar;
+ALTER TABLE users ADD COLUMN phone varchar;
+ALTER TABLE users ADD COLUMN first_name varchar;
+ALTER TABLE users ADD COLUMN last_name varchar;
+ALTER TABLE users ADD COLUMN address_line1 varchar;
+ALTER TABLE users ADD COLUMN address_line2 varchar;
+ALTER TABLE users ADD COLUMN postal_code varchar;
+ALTER TABLE users ADD COLUMN city varchar;
+ALTER TABLE users ADD COLUMN country varchar;

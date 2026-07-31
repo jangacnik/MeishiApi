@@ -28,6 +28,7 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
     // Self-lookup: registered ahead of the admin-only wildcard below so any authenticated
     // user (not just admins) can read their own record.
     router.get("/api/users/me").handler(jwtAuthHandler).handler(users::me)
+    router.patch("/api/users/me").handler(jwtAuthHandler).handler(users::updateProfile)
 
     router.route("/api/users*").handler(jwtAuthHandler)
     router.route("/api/users*").handler(users::requireAdmin)

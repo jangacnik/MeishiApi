@@ -21,6 +21,15 @@ data class User(
     val activationKey: UUID,
     val activatedAt: OffsetDateTime?,
     val createdAt: OffsetDateTime,
+    val email: String? = null,
+    val phone: String? = null,
+    val firstName: String? = null,
+    val lastName: String? = null,
+    val addressLine1: String? = null,
+    val addressLine2: String? = null,
+    val postalCode: String? = null,
+    val city: String? = null,
+    val country: String? = null,
 ) {
     val isActivated: Boolean get() = activatedAt != null
 }

@@ -16,6 +16,8 @@ import java.util.UUID
 
 private const val POSTGRES_UNIQUE_VIOLATION = "23505"
 private const val FAILED_LOGIN_FREEZE_THRESHOLD = 3
+private const val USER_COLUMNS = "id, nickname, role, status, activation_key, activated_at, created_at, " +
+    "email, phone, first_name, last_name, address_line1, address_line2, postal_code, city, country"
 
 class PgUserRepository(private val pool: Pool) : UserRepository {
 
@@ -66,7 +68,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     override suspend fun findById(id: UUID): User? {
         log.trace("lookup by id={}", id)
         val rows = pool.preparedQuery(
-            "SELECT id, nickname, role, status, activation_key, activated_at, created_at FROM users WHERE id = $1",
+            "SELECT $USER_COLUMNS FROM users WHERE id = $1",
         ).execute(Tuple.of(id)).coAwait()
         return rows.firstOrNull()?.let(::toUser)
     }
@@ -74,10 +76,21 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     override suspend fun listAll(): List<User> {
         log.trace("list all users")
         val rows = pool.query(
-            "SELECT id, nickname, role, status, activation_key, activated_at, created_at " +
-                "FROM users ORDER BY created_at",
+            "SELECT $USER_COLUMNS FROM users ORDER BY created_at",
         ).execute().coAwait()
         return rows.map(::toUser)
+    }
+
+    override suspend fun updateProfile(id: UUID, fields: Map<String, String?>): Boolean {
+        if (fields.isEmpty()) return findById(id) != null
+        log.trace("update profile of {} fields={}", id, fields.keys)
+        val setClauses = fields.keys.mapIndexed { i, column -> "$column = \$${i + 1}" }
+        val sql = "UPDATE users SET ${setClauses.joinToString(", ")} WHERE id = \$${fields.size + 1}"
+        val params = Tuple.from(fields.values.toList() + id)
+        val result = pool.preparedQuery(sql).execute(params).coAwait()
+        val updated = result.rowCount() > 0
+        if (updated) log.info("updated profile for user {}", id) else log.warn("update profile: user {} not found", id)
+        return updated
     }
 
     override suspend fun updateRole(id: UUID, role: Role): Boolean {
@@ -155,5 +168,14 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         activationKey = row.getUUID("activation_key"),
         activatedAt = row.getOffsetDateTime("activated_at"),
         createdAt = row.getOffsetDateTime("created_at"),
+        email = row.getString("email"),
+        phone = row.getString("phone"),
+        firstName = row.getString("first_name"),
+        lastName = row.getString("last_name"),
+        addressLine1 = row.getString("address_line1"),
+        addressLine2 = row.getString("address_line2"),
+        postalCode = row.getString("postal_code"),
+        city = row.getString("city"),
+        country = row.getString("country"),
     )
 }

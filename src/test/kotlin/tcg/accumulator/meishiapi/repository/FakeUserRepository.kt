@@ -25,6 +25,15 @@ class FakeUserRepository : UserRepository {
         var activatedAt: OffsetDateTime?,
         val createdAt: OffsetDateTime,
         var failedLoginAttempts: Int = 0,
+        var email: String? = null,
+        var phone: String? = null,
+        var firstName: String? = null,
+        var lastName: String? = null,
+        var addressLine1: String? = null,
+        var addressLine2: String? = null,
+        var postalCode: String? = null,
+        var city: String? = null,
+        var country: String? = null,
     )
 
     private val byId = ConcurrentHashMap<UUID, Record>()
@@ -70,6 +79,24 @@ class FakeUserRepository : UserRepository {
         return true
     }
 
+    override suspend fun updateProfile(id: UUID, fields: Map<String, String?>): Boolean {
+        val record = byId[id] ?: return false
+        fields.forEach { (column, value) ->
+            when (column) {
+                "email" -> record.email = value
+                "phone" -> record.phone = value
+                "first_name" -> record.firstName = value
+                "last_name" -> record.lastName = value
+                "address_line1" -> record.addressLine1 = value
+                "address_line2" -> record.addressLine2 = value
+                "postal_code" -> record.postalCode = value
+                "city" -> record.city = value
+                "country" -> record.country = value
+            }
+        }
+        return true
+    }
+
     override suspend fun registerFailedLoginAttempt(id: UUID) {
         val record = byId[id] ?: return
         record.failedLoginAttempts += 1
@@ -95,5 +122,8 @@ class FakeUserRepository : UserRepository {
     }
 
     private fun Record.toAuthRecord() = AuthRecord(id, nickname, passwordHash, role, status, activatedAt)
-    private fun Record.toUser() = User(id, nickname, role, status, activationKey, activatedAt, createdAt)
+    private fun Record.toUser() = User(
+        id, nickname, role, status, activationKey, activatedAt, createdAt,
+        email, phone, firstName, lastName, addressLine1, addressLine2, postalCode, city, country,
+    )
 }
