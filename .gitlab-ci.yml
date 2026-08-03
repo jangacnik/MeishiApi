@@ -10,7 +10,6 @@ stages:
 variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
   KUBE_CONTEXT: tcg/tcg-k8s-agent:prod-agent
-  K8S_NAMESPACE: default
 
 cache:
   key: "$CI_COMMIT_REF_SLUG-gradle"
@@ -51,7 +50,7 @@ build:
       --destination "$CI_REGISTRY_IMAGE:latest"
       --cache=true
 
-deploy:
+.deploy_base:
   stage: deploy
   image: alpine/k8s:1.31.13
   rules:
@@ -68,3 +67,15 @@ deploy:
   # deploy/k8s/rbac.yaml is intentionally never applied here - the CI job's
   # own identity can't grant itself the RBAC it needs before it has any.
   # Apply that one yourself, once: kubectl apply -f deploy/k8s/rbac.yaml
+
+deploy-dev:
+  extends: .deploy_base
+  environment: dev
+  variables:
+    K8S_NAMESPACE: dev
+
+deploy-production:
+  extends: .deploy_base
+  environment: production
+  variables:
+    K8S_NAMESPACE: default
