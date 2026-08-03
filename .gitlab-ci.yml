@@ -9,7 +9,7 @@ stages:
 
 variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
-  KUBE_CONTEXT: tcg/tcg-accumulator:prod-agent
+  KUBE_CONTEXT: tcg/tcg-k8s-agent:prod-agent
   K8S_NAMESPACE: default
 
 cache:
