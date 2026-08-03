@@ -58,6 +58,8 @@ deploy:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       when: manual
   script:
+    - echo "KUBECONFIG=$KUBECONFIG"
+    - cat "$KUBECONFIG" 2>&1 || echo "NO KUBECONFIG FILE"
     - kubectl config use-context "$KUBE_CONTEXT"
     - sed "s|__IMAGE__|$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA|g" deploy/k8s/deployment.yaml > /tmp/deployment.yaml
     - kubectl apply --validate=false -n "$K8S_NAMESPACE" -f /tmp/deployment.yaml
