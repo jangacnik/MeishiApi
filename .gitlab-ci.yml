@@ -1,4 +1,68 @@
-include:
-  - project: 'devops/ci-templates'
-    ref: main
-    file: '/templates/full.yml'
+# `test` runs automatically on every commit, every branch. `build`/`deploy`
+# only appear (as manual jobs) on the default branch - there's nothing to
+# deploy from a feature branch, and pushing an image/deploying is deliberate.
+
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  KUBE_CONTEXT: tcg/tcg-accumulator:prod-agent
+  K8S_NAMESPACE: default
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG-gradle"
+  paths:
+    - .gradle/wrapper
+    - .gradle/caches
+
+test:
+  stage: test
+  image: gradle:9.3.0-jdk21
+  script:
+    - gradle --no-daemon test
+  artifacts:
+    when: always
+    paths:
+      - build/reports/tests
+    reports:
+      junit:
+        - build/test-results/test/**/TEST-*.xml
+
+build:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+  before_script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf "%s:%s" "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+  script:
+    - >
+      /kaniko/executor
+      --context "$CI_PROJECT_DIR"
+      --dockerfile "$CI_PROJECT_DIR/Dockerfile"
+      --destination "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+      --destination "$CI_REGISTRY_IMAGE:latest"
+      --cache=true
+
+deploy:
+  stage: deploy
+  image: alpine/k8s:1.31.13
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+  script:
+    - kubectl config use-context "$KUBE_CONTEXT"
+    - sed "s|__IMAGE__|$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA|g" deploy/k8s/deployment.yaml > /tmp/deployment.yaml
+    - kubectl apply --validate=false -n "$K8S_NAMESPACE" -f /tmp/deployment.yaml
+    - kubectl apply --validate=false -n "$K8S_NAMESPACE" -f deploy/k8s/service.yaml
+    - kubectl -n "$K8S_NAMESPACE" rollout status deployment/meishi-api --timeout=180s
+  # deploy/k8s/rbac.yaml is intentionally never applied here - the CI job's
+  # own identity can't grant itself the RBAC it needs before it has any.
+  # Apply that one yourself, once: kubectl apply -f deploy/k8s/rbac.yaml
