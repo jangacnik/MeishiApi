@@ -1,0 +1,107 @@
+# __IMAGE__ is substituted by the deploy CI job (see .gitlab-ci.yml) with
+# $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA before kubectl apply.
+#
+# Needs, created once out of band (not by CI):
+#   kubectl create secret generic meishi-api-secrets \
+#     --from-literal=db-host='...' \
+#     --from-literal=db-port='5432' \
+#     --from-literal=db-name='meishi' \
+#     --from-literal=db-user='...' \
+#     --from-literal=db-password='...' \
+#     --from-literal=jwt-secret='...' \
+#     --from-literal=admin-nickname='...' \
+#     --from-literal=admin-password='...'
+#
+# Also needs a "regcred" docker-registry secret so the cluster can pull the
+# image (the registry doesn't allow anonymous pulls) - a GitLab deploy token
+# with read_registry scope works:
+#   kubectl create secret docker-registry regcred \
+#     --docker-server=<registry host:port> \
+#     --docker-username=<deploy token username> \
+#     --docker-password=<deploy token>
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meishi-api
+  labels:
+    app: meishi-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: meishi-api
+  template:
+    metadata:
+      labels:
+        app: meishi-api
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: app
+          image: __IMAGE__
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: HTTP_PORT
+              value: "8080"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: db-host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: db-port
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: db-name
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: db-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: db-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: jwt-secret
+            - name: ADMIN_NICKNAME
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: admin-nickname
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: admin-password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+          # No /health route in the app yet - plain TCP check on the HTTP
+          # port until one exists.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
