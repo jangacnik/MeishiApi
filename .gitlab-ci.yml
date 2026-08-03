@@ -9,7 +9,6 @@ stages:
 
 variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
-  KUBE_CONTEXT: tcg/tcg-k8s-agent:prod-agent
 
 cache:
   key: "$CI_COMMIT_REF_SLUG-gradle"
@@ -57,9 +56,28 @@ build:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       when: manual
   script:
-    - echo "KUBECONFIG=$KUBECONFIG"
-    - cat "$KUBECONFIG" 2>&1 || echo "NO KUBECONFIG FILE"
-    - kubectl config use-context "$KUBE_CONTEXT"
+    - |
+      cat > /tmp/kubeconfig.yaml <<EOF
+      apiVersion: v1
+      kind: Config
+      clusters:
+        - name: prod
+          cluster:
+            server: ${K8S_API_SERVER}
+            certificate-authority-data: ${K8S_CA_CERT_B64}
+      contexts:
+        - name: deployer
+          context:
+            cluster: prod
+            namespace: ${K8S_NAMESPACE}
+            user: deployer
+      current-context: deployer
+      users:
+        - name: deployer
+          user:
+            token: ${K8S_TOKEN}
+      EOF
+    - export KUBECONFIG=/tmp/kubeconfig.yaml
     - sed "s|__IMAGE__|$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA|g" deploy/k8s/deployment.yaml > /tmp/deployment.yaml
     - kubectl apply --validate=false -n "$K8S_NAMESPACE" -f /tmp/deployment.yaml
     - kubectl apply --validate=false -n "$K8S_NAMESPACE" -f deploy/k8s/service.yaml
