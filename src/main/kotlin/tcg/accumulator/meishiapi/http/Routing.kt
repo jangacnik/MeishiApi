@@ -22,7 +22,7 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
     router.post("/api/auth/register").handler(auth::register)
     router.post("/api/auth/login").handler(auth::login)
 
-    val users = UserHandler(repository, jwt)
+    val users = UserHandler(repository, hasher, jwt)
     val jwtAuthHandler = JWTAuthHandler.create(jwt.auth)
 
     // Self-lookup/self-service: registered ahead of the admin-only wildcard below so any
@@ -30,6 +30,8 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
     // own deletion request.
     router.get("/api/users/me").handler(jwtAuthHandler).handler(users::me)
     router.patch("/api/users/me").handler(jwtAuthHandler).handler(users::updateProfile)
+    router.patch("/api/users/me/nickname").handler(jwtAuthHandler).handler(users::changeMyNickname)
+    router.patch("/api/users/me/password").handler(jwtAuthHandler).handler(users::changeMyPassword)
     router.post("/api/users/me/request-deletion").handler(jwtAuthHandler).handler(users::requestDeletion)
     router.delete("/api/users/me/request-deletion").handler(jwtAuthHandler).handler(users::cancelDeletionRequest)
 
@@ -39,6 +41,8 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
     router.post("/api/users").handler(users::create)
     router.patch("/api/users/:id").handler(users::updateRole)
     router.patch("/api/users/:id/status").handler(users::updateStatus)
+    router.patch("/api/users/:id/profile").handler(users::adminUpdateUser)
+    router.patch("/api/users/:id/password").handler(users::adminSetPassword)
     router.delete("/api/users/:id").handler(users::delete)
 
     return router

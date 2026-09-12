@@ -64,6 +64,8 @@ class FakeUserRepository : UserRepository {
 
     override suspend fun findById(id: UUID): User? = byId[id]?.toUser()
 
+    override suspend fun findAuthRecordById(id: UUID): AuthRecord? = byId[id]?.toAuthRecord()
+
     override suspend fun listAll(): List<User> =
         byId.values.sortedBy { it.createdAt }.map { it.toUser() }
 
@@ -82,20 +84,50 @@ class FakeUserRepository : UserRepository {
 
     override suspend fun updateProfile(id: UUID, fields: Map<String, String?>): Boolean {
         val record = byId[id] ?: return false
+        record.applyProfileFields(fields)
+        return true
+    }
+
+    override suspend fun updateNickname(id: UUID, nickname: String): Either<AppError, Unit> = either {
+        if (byId.values.any { it.nickname == nickname && it.id != id }) {
+            raise(AppError.Conflict("nickname already taken"))
+        }
+        byId.getValue(id).nickname = nickname
+    }
+
+    override suspend fun updatePassword(id: UUID, passwordHash: String): Boolean {
+        val record = byId[id] ?: return false
+        record.passwordHash = passwordHash
+        return true
+    }
+
+    override suspend fun adminUpdateProfile(
+        id: UUID,
+        nickname: String?,
+        fields: Map<String, String?>,
+    ): Either<AppError, Unit> = either {
+        if (nickname != null && byId.values.any { it.nickname == nickname && it.id != id }) {
+            raise(AppError.Conflict("nickname already taken"))
+        }
+        val record = byId[id] ?: return@either
+        if (nickname != null) record.nickname = nickname
+        record.applyProfileFields(fields)
+    }
+
+    private fun Record.applyProfileFields(fields: Map<String, String?>) {
         fields.forEach { (column, value) ->
             when (column) {
-                "email" -> record.email = value
-                "phone" -> record.phone = value
-                "first_name" -> record.firstName = value
-                "last_name" -> record.lastName = value
-                "address_line1" -> record.addressLine1 = value
-                "address_line2" -> record.addressLine2 = value
-                "postal_code" -> record.postalCode = value
-                "city" -> record.city = value
-                "country" -> record.country = value
+                "email" -> email = value
+                "phone" -> phone = value
+                "first_name" -> firstName = value
+                "last_name" -> lastName = value
+                "address_line1" -> addressLine1 = value
+                "address_line2" -> addressLine2 = value
+                "postal_code" -> postalCode = value
+                "city" -> city = value
+                "country" -> country = value
             }
         }
-        return true
     }
 
     override suspend fun registerFailedLoginAttempt(id: UUID) {

@@ -10,10 +10,14 @@ import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User
 import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
+import tcg.accumulator.meishiapi.security.PasswordHasher
 import java.util.UUID
+
+private const val MIN_PASSWORD_LENGTH = 8
 
 class UserHandler(
     private val repository: UserRepository,
+    private val hasher: PasswordHasher,
     private val jwt: JwtService,
 ) {
     private val log = LoggerFactory.getLogger(UserHandler::class.java)
@@ -44,6 +48,39 @@ class UserHandler(
         val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
         log.trace("self profile update for {}", id)
         JsonResult(toJson(user))
+    }
+
+    fun changeMyNickname(ctx: RoutingContext) = respond(ctx) {
+        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
+        val id = jwt.subjectOf(principal)
+        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
+        val nickname = body.getString("nickname")?.takeIf { it.isNotBlank() }
+            ?: raise(AppError.BadRequest("nickname required"))
+        repository.updateNickname(id, nickname).bind()
+        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        log.info("user {} changed nickname to '{}'", id, nickname)
+        JsonResult(toJson(user))
+    }
+
+    fun changeMyPassword(ctx: RoutingContext) = respond(ctx) {
+        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
+        val id = jwt.subjectOf(principal)
+        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
+        val oldPassword = body.getString("oldPassword")?.takeIf { it.isNotBlank() }
+            ?: raise(AppError.BadRequest("oldPassword required"))
+        val newPassword = body.getString("newPassword")?.takeIf { it.isNotBlank() }
+            ?: raise(AppError.BadRequest("newPassword required"))
+        if (newPassword.length < MIN_PASSWORD_LENGTH) {
+            raise(AppError.BadRequest("newPassword must be at least $MIN_PASSWORD_LENGTH characters"))
+        }
+        val record = repository.findAuthRecordById(id) ?: raise(AppError.NotFound("user not found"))
+        if (!hasher.verify(record.passwordHash, oldPassword)) {
+            log.warn("password change failed: incorrect old password for {}", id)
+            raise(AppError.Unauthorized("incorrect password"))
+        }
+        repository.updatePassword(id, hasher.hash(newPassword))
+        log.info("user {} changed their password", id)
+        NoContentResult()
     }
 
     fun requestDeletion(ctx: RoutingContext) = respond(ctx) {
@@ -99,6 +136,33 @@ class UserHandler(
         if (!repository.updateStatus(id, status)) {
             raise(AppError.NotFound("user not found"))
         }
+        NoContentResult()
+    }
+
+    fun adminUpdateUser(ctx: RoutingContext) = respond(ctx) {
+        val id = pathId(ctx)
+        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
+        val nickname = if (body.containsKey("nickname")) {
+            body.getString("nickname")?.takeIf { it.isNotBlank() }
+                ?: raise(AppError.BadRequest("nickname must not be blank"))
+        } else {
+            null
+        }
+        repository.adminUpdateProfile(id, nickname, profileFieldsOf(body)).bind()
+        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        log.info("admin updated profile for user {}", id)
+        JsonResult(toJson(user))
+    }
+
+    fun adminSetPassword(ctx: RoutingContext) = respond(ctx) {
+        val id = pathId(ctx)
+        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
+        val newPassword = body.getString("newPassword")?.takeIf { it.isNotBlank() }
+            ?: raise(AppError.BadRequest("newPassword required"))
+        if (!repository.updatePassword(id, hasher.hash(newPassword))) {
+            raise(AppError.NotFound("user not found"))
+        }
+        log.info("admin set password for user {}", id)
         NoContentResult()
     }
 

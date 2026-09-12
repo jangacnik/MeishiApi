@@ -22,6 +22,7 @@ interface UserRepository {
     suspend fun findByActivationKey(activationKey: UUID): AuthRecord?
     suspend fun findByNickname(nickname: String): AuthRecord?
     suspend fun findById(id: UUID): User?
+    suspend fun findAuthRecordById(id: UUID): AuthRecord?
     suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit>
     suspend fun listAll(): List<User>
     suspend fun updateRole(id: UUID, role: Role): Boolean
@@ -29,6 +30,15 @@ interface UserRepository {
 
     /** Partially updates profile columns. Keys are column names; only the given keys are touched. */
     suspend fun updateProfile(id: UUID, fields: Map<String, String?>): Boolean
+
+    /** Self-service nickname change; conflicts with an existing nickname raise [AppError.Conflict]. */
+    suspend fun updateNickname(id: UUID, nickname: String): Either<AppError, Unit>
+
+    /** Overwrites the stored password hash. Returns whether a row was affected. */
+    suspend fun updatePassword(id: UUID, passwordHash: String): Boolean
+
+    /** Admin variant of [updateProfile] that may also change [nickname], with the same conflict handling. */
+    suspend fun adminUpdateProfile(id: UUID, nickname: String?, fields: Map<String, String?>): Either<AppError, Unit>
 
     /** Records a failed login attempt, freezing the account once it hits the threshold. */
     suspend fun registerFailedLoginAttempt(id: UUID)
