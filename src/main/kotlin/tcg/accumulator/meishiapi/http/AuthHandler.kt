@@ -60,7 +60,7 @@ class AuthHandler(
         }
         if (record.status == Status.FROZEN) {
             log.warn("login blocked: account '{}' is frozen", nickname)
-            raise(AppError.Forbidden("account frozen after too many failed login attempts - contact an admin"))
+            raise(AppError.Forbidden("account is frozen - contact an admin"))
         }
         if (!hasher.verify(record.passwordHash, password)) {
             repository.registerFailedLoginAttempt(record.id)
