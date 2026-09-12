@@ -20,7 +20,13 @@ import kotlin.test.assertTrue
 @ExtendWith(VertxExtension::class)
 class UserHandlerTest {
 
-    private data class Harness(val repo: FakeUserRepository, val jwt: JwtService, val client: WebClient, val port: Int)
+    private data class Harness(
+        val repo: FakeUserRepository,
+        val hasher: PasswordHasher,
+        val jwt: JwtService,
+        val client: WebClient,
+        val port: Int,
+    )
 
     private suspend fun harness(vertx: Vertx): Harness {
         val repo = FakeUserRepository()
@@ -28,7 +34,7 @@ class UserHandlerTest {
         val jwt = JwtService(vertx, "test-secret")
         val router = buildRouter(vertx, repo, hasher, jwt)
         val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
-        return Harness(repo, jwt, WebClient.create(vertx), server.actualPort())
+        return Harness(repo, hasher, jwt, WebClient.create(vertx), server.actualPort())
     }
 
     private suspend fun adminToken(h: Harness): String {
@@ -207,6 +213,144 @@ class UserHandlerTest {
             .putHeader("Authorization", "Bearer $token").send().coAwait()
 
         assertEquals(404, response.statusCode())
+    }
+
+    @Test
+    fun `changeMyNickname updates the caller's nickname`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/me/nickname")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("nickname", "newbob")).coAwait()
+
+        assertEquals(200, response.statusCode())
+        assertEquals("newbob", response.bodyAsJsonObject().getString("nickname"))
+    }
+
+    @Test
+    fun `changeMyNickname conflicts with an existing nickname`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (otherId, _) = h.repo.create(Role.USER)
+        h.repo.activate(otherId, "taken", "hash")
+        val token = userToken(h)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/me/nickname")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("nickname", "taken")).coAwait()
+
+        assertEquals(409, response.statusCode())
+    }
+
+    @Test
+    fun `changeMyPassword rejects an incorrect old password`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", h.hasher.hash("correct-password"))
+        val token = h.jwt.generateToken(id, "bob", Role.USER)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/me/password")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("oldPassword", "wrong-password").put("newPassword", "new-password")).coAwait()
+
+        assertEquals(401, response.statusCode())
+
+        val loginStillWorks = h.client.post(h.port, "localhost", "/api/auth/login")
+            .sendJsonObject(JsonObject().put("nickname", "bob").put("password", "correct-password")).coAwait()
+        assertEquals(200, loginStillWorks.statusCode())
+    }
+
+    @Test
+    fun `changeMyPassword succeeds with the correct old password and the new one verifies`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", h.hasher.hash("correct-password"))
+        val token = h.jwt.generateToken(id, "bob", Role.USER)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/me/password")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("oldPassword", "correct-password").put("newPassword", "new-password")).coAwait()
+
+        assertEquals(204, response.statusCode())
+
+        val loginWithNewPassword = h.client.post(h.port, "localhost", "/api/auth/login")
+            .sendJsonObject(JsonObject().put("nickname", "bob").put("password", "new-password")).coAwait()
+        assertEquals(200, loginWithNewPassword.statusCode())
+    }
+
+    @Test
+    fun `changeMyPassword rejects a too-short new password`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", h.hasher.hash("correct-password"))
+        val token = h.jwt.generateToken(id, "bob", Role.USER)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/me/password")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("oldPassword", "correct-password").put("newPassword", "short")).coAwait()
+
+        assertEquals(400, response.statusCode())
+    }
+
+    @Test
+    fun `adminUpdateUser rejects a non-admin caller`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+        val (id, _) = h.repo.create(Role.USER)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/$id/profile")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("nickname", "renamed")).coAwait()
+
+        assertEquals(403, response.statusCode())
+    }
+
+    @Test
+    fun `adminUpdateUser updates nickname and profile fields for an admin caller`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", "hash")
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/$id/profile")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("nickname", "renamed").put("email", "bob@example.com")).coAwait()
+
+        assertEquals(200, response.statusCode())
+        val body = response.bodyAsJsonObject()
+        assertEquals("renamed", body.getString("nickname"))
+        assertEquals("bob@example.com", body.getString("email"))
+    }
+
+    @Test
+    fun `adminSetPassword rejects a non-admin caller`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+        val (id, _) = h.repo.create(Role.USER)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/$id/password")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("newPassword", "admin-set-password")).coAwait()
+
+        assertEquals(403, response.statusCode())
+    }
+
+    @Test
+    fun `adminSetPassword sets a new password without an old password and it verifies`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val adminTok = adminToken(h)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", h.hasher.hash("original-password"))
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/$id/password")
+            .putHeader("Authorization", "Bearer $adminTok")
+            .sendJsonObject(JsonObject().put("newPassword", "admin-set-password")).coAwait()
+
+        assertEquals(204, response.statusCode())
+
+        val loginWithNewPassword = h.client.post(h.port, "localhost", "/api/auth/login")
+            .sendJsonObject(JsonObject().put("nickname", "bob").put("password", "admin-set-password")).coAwait()
+        assertEquals(200, loginWithNewPassword.statusCode())
     }
 
     @Test

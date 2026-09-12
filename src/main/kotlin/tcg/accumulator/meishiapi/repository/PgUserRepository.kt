@@ -74,6 +74,14 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         return rows.firstOrNull()?.let(::toUser)
     }
 
+    override suspend fun findAuthRecordById(id: UUID): AuthRecord? {
+        log.trace("lookup auth record by id={}", id)
+        val rows = pool.preparedQuery(
+            "SELECT id, nickname, password_hash, role, status, activated_at FROM users WHERE id = $1",
+        ).execute(Tuple.of(id)).coAwait()
+        return rows.firstOrNull()?.let(::toAuthRecord)
+    }
+
     override suspend fun listAll(): List<User> {
         log.trace("list all users")
         val rows = pool.query(
@@ -92,6 +100,55 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         val updated = result.rowCount() > 0
         if (updated) log.info("updated profile for user {}", id) else log.warn("update profile: user {} not found", id)
         return updated
+    }
+
+    override suspend fun updateNickname(id: UUID, nickname: String): Either<AppError, Unit> = either {
+        log.trace("update nickname of {} to '{}'", id, nickname)
+        try {
+            pool.preparedQuery(
+                "UPDATE users SET nickname = $1 WHERE id = $2",
+            ).execute(Tuple.of(nickname, id)).coAwait()
+            log.info("updated nickname for user {}", id)
+        } catch (e: PgException) {
+            if (e.sqlState == POSTGRES_UNIQUE_VIOLATION) {
+                log.warn("nickname update for {} failed: '{}' already taken", id, nickname)
+                raise(AppError.Conflict("nickname already taken"))
+            }
+            throw e
+        }
+    }
+
+    override suspend fun updatePassword(id: UUID, passwordHash: String): Boolean {
+        log.trace("update password for {}", id)
+        val result = pool.preparedQuery(
+            "UPDATE users SET password_hash = $1 WHERE id = $2",
+        ).execute(Tuple.of(passwordHash, id)).coAwait()
+        val updated = result.rowCount() > 0
+        if (updated) log.info("updated password for user {}", id) else log.warn("update password: user {} not found", id)
+        return updated
+    }
+
+    override suspend fun adminUpdateProfile(
+        id: UUID,
+        nickname: String?,
+        fields: Map<String, String?>,
+    ): Either<AppError, Unit> = either {
+        val allFields = if (nickname != null) fields + ("nickname" to nickname) else fields
+        if (allFields.isEmpty()) return@either
+        log.trace("admin update profile of {} fields={}", id, allFields.keys)
+        try {
+            val setClauses = allFields.keys.mapIndexed { i, column -> "$column = \$${i + 1}" }
+            val sql = "UPDATE users SET ${setClauses.joinToString(", ")} WHERE id = \$${allFields.size + 1}"
+            val params = Tuple.from(allFields.values.toList() + id)
+            pool.preparedQuery(sql).execute(params).coAwait()
+            log.info("admin updated profile for user {}", id)
+        } catch (e: PgException) {
+            if (e.sqlState == POSTGRES_UNIQUE_VIOLATION) {
+                log.warn("admin profile update for {} failed: nickname '{}' already taken", id, nickname)
+                raise(AppError.Conflict("nickname already taken"))
+            }
+            throw e
+        }
     }
 
     override suspend fun updateRole(id: UUID, role: Role): Boolean {
