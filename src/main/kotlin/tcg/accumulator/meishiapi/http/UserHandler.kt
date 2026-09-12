@@ -46,6 +46,24 @@ class UserHandler(
         JsonResult(toJson(user))
     }
 
+    fun requestDeletion(ctx: RoutingContext) = respond(ctx) {
+        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
+        val id = jwt.subjectOf(principal)
+        repository.requestDeletion(id)
+        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        log.info("user {} requested account deletion", id)
+        JsonResult(toJson(user))
+    }
+
+    fun cancelDeletionRequest(ctx: RoutingContext) = respond(ctx) {
+        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
+        val id = jwt.subjectOf(principal)
+        repository.cancelDeletionRequest(id)
+        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        log.info("user {} cancelled deletion request", id)
+        JsonResult(toJson(user))
+    }
+
     fun list(ctx: RoutingContext) = respond(ctx) {
         val users = repository.listAll()
         log.trace("listed {} users", users.size)
@@ -128,4 +146,5 @@ class UserHandler(
         .put("postalCode", user.postalCode)
         .put("city", user.city)
         .put("country", user.country)
+        .put("deletionRequestedAt", user.deletionRequestedAt?.toString())
 }

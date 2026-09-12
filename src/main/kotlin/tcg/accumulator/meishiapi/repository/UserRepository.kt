@@ -36,4 +36,10 @@ interface UserRepository {
     suspend fun delete(id: UUID): Boolean
     suspend fun countAdmins(): Int
     suspend fun seedAdmin(nickname: String, passwordHash: String)
+
+    /** Self-service: user marks their own account for admin-reviewed deletion. */
+    suspend fun requestDeletion(id: UUID): Boolean
+
+    /** Self-service: user withdraws a pending deletion request. */
+    suspend fun cancelDeletionRequest(id: UUID): Boolean
 }

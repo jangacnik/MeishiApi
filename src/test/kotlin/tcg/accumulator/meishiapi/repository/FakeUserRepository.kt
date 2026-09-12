@@ -34,6 +34,7 @@ class FakeUserRepository : UserRepository {
         var postalCode: String? = null,
         var city: String? = null,
         var country: String? = null,
+        var deletionRequestedAt: OffsetDateTime? = null,
     )
 
     private val byId = ConcurrentHashMap<UUID, Record>()
@@ -121,9 +122,22 @@ class FakeUserRepository : UserRepository {
         )
     }
 
+    override suspend fun requestDeletion(id: UUID): Boolean {
+        val record = byId[id] ?: return false
+        record.deletionRequestedAt = OffsetDateTime.now()
+        return true
+    }
+
+    override suspend fun cancelDeletionRequest(id: UUID): Boolean {
+        val record = byId[id] ?: return false
+        record.deletionRequestedAt = null
+        return true
+    }
+
     private fun Record.toAuthRecord() = AuthRecord(id, nickname, passwordHash, role, status, activatedAt)
     private fun Record.toUser() = User(
         id, nickname, role, status, activationKey, activatedAt, createdAt,
         email, phone, firstName, lastName, addressLine1, addressLine2, postalCode, city, country,
+        deletionRequestedAt,
     )
 }

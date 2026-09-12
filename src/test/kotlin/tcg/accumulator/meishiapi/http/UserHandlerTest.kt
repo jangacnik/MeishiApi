@@ -208,4 +208,37 @@ class UserHandlerTest {
 
         assertEquals(404, response.statusCode())
     }
+
+    @Test
+    fun `requestDeletion marks the caller's own account and is reflected in me`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+
+        val response = h.client.post(h.port, "localhost", "/api/users/me/request-deletion")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(200, response.statusCode())
+        assertTrue(response.bodyAsJsonObject().getString("deletionRequestedAt") != null)
+    }
+
+    @Test
+    fun `requestDeletion requires a token`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val response = h.client.post(h.port, "localhost", "/api/users/me/request-deletion").send().coAwait()
+        assertEquals(401, response.statusCode())
+    }
+
+    @Test
+    fun `cancelDeletionRequest clears a pending request`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+        h.client.post(h.port, "localhost", "/api/users/me/request-deletion")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        val response = h.client.delete(h.port, "localhost", "/api/users/me/request-deletion")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(200, response.statusCode())
+        assertEquals(null, response.bodyAsJsonObject().getString("deletionRequestedAt"))
+    }
 }
