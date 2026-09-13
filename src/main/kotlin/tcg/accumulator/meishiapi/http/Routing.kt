@@ -34,6 +34,7 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
     router.patch("/api/users/me/password").handler(jwtAuthHandler).handler(users::changeMyPassword)
     router.post("/api/users/me/request-deletion").handler(jwtAuthHandler).handler(users::requestDeletion)
     router.delete("/api/users/me/request-deletion").handler(jwtAuthHandler).handler(users::cancelDeletionRequest)
+    router.get("/api/users/nicknames").handler(jwtAuthHandler).handler(users::nicknames)
 
     router.route("/api/users*").handler(jwtAuthHandler)
     router.route("/api/users*").handler(users::requireAdmin)
