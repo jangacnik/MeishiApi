@@ -30,6 +30,7 @@ data class User(
     val postalCode: String? = null,
     val city: String? = null,
     val country: String? = null,
+    val avatarKey: String? = null,
     val deletionRequestedAt: OffsetDateTime? = null,
 ) {
     val isActivated: Boolean get() = activatedAt != null
