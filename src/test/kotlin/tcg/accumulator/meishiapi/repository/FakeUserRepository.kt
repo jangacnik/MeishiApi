@@ -34,6 +34,7 @@ class FakeUserRepository : UserRepository {
         var postalCode: String? = null,
         var city: String? = null,
         var country: String? = null,
+        var avatarKey: String? = null,
         var deletionRequestedAt: OffsetDateTime? = null,
     )
 
@@ -126,6 +127,7 @@ class FakeUserRepository : UserRepository {
                 "postal_code" -> postalCode = value
                 "city" -> city = value
                 "country" -> country = value
+                "avatar_key" -> avatarKey = value
             }
         }
     }
@@ -170,6 +172,6 @@ class FakeUserRepository : UserRepository {
     private fun Record.toUser() = User(
         id, nickname, role, status, activationKey, activatedAt, createdAt,
         email, phone, firstName, lastName, addressLine1, addressLine2, postalCode, city, country,
-        deletionRequestedAt,
+        avatarKey, deletionRequestedAt,
     )
 }

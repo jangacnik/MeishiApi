@@ -187,6 +187,7 @@ class UserHandler(
         "postalCode" to "postal_code",
         "city" to "city",
         "country" to "country",
+        "avatarKey" to "avatar_key",
     )
 
     private fun profileFieldsOf(body: JsonObject): Map<String, String?> =
@@ -210,5 +211,6 @@ class UserHandler(
         .put("postalCode", user.postalCode)
         .put("city", user.city)
         .put("country", user.country)
+        .put("avatarKey", user.avatarKey)
         .put("deletionRequestedAt", user.deletionRequestedAt?.toString())
 }
