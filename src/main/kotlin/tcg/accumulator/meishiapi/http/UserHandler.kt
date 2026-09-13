@@ -107,6 +107,14 @@ class UserHandler(
         JsonArrayResult(JsonArray(users.map(::toJson)))
     }
 
+    // Member-facing directory: id + nickname only, no other profile field - safe for any
+    // authenticated caller, unlike list() above which is admin-only.
+    fun nicknames(ctx: RoutingContext) = respond(ctx) {
+        val users = repository.listAll().filter { it.isActivated }
+        log.trace("listed {} nicknames", users.size)
+        JsonArrayResult(JsonArray(users.map { JsonObject().put("id", it.id.toString()).put("nickname", it.nickname) }))
+    }
+
     fun create(ctx: RoutingContext) = respond(ctx) {
         val body = ctx.body().asJsonObject() ?: JsonObject()
         val role = body.getString("role")?.let {
