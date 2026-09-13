@@ -1,6 +1,9 @@
-# `test` runs automatically on every commit, every branch. `build`/`deploy`
-# only appear (as manual jobs) on the default branch - there's nothing to
-# deploy from a feature branch, and pushing an image/deploying is deliberate.
+# `test` runs automatically on every commit, every branch. `build` and
+# `deploy-production` run automatically too, but only on the default branch
+# (deploy-dev stays a manual job - dev deploys are still deliberate). Every
+# job is interruptible and the project has "auto-cancel redundant pipelines"
+# on, so pushing again while a pipeline is still running cancels the older
+# one instead of racing it to prod.
 
 stages:
   - test
@@ -19,6 +22,7 @@ cache:
 test:
   stage: test
   image: gradle:9.3.0-jdk21
+  interruptible: true
   script:
     - gradle --no-daemon test
   artifacts:
@@ -34,9 +38,9 @@ build:
   image:
     name: gcr.io/kaniko-project/executor:v1.23.2-debug
     entrypoint: [""]
+  interruptible: true
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      when: manual
   before_script:
     - mkdir -p /kaniko/.docker
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf "%s:%s" "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
@@ -52,9 +56,7 @@ build:
 .deploy_base:
   stage: deploy
   image: alpine/k8s:1.31.13
-  rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      when: manual
+  interruptible: true
   script:
     - |
       cat > /tmp/kubeconfig.yaml <<EOF
@@ -88,12 +90,17 @@ build:
 
 deploy-dev:
   extends: .deploy_base
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
   environment: dev
   variables:
     K8S_NAMESPACE: dev
 
 deploy-production:
   extends: .deploy_base
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   environment: production
   variables:
     K8S_NAMESPACE: default
