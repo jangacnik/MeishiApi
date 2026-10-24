@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.3.21"
+    kotlin("jvm") version "2.4.20"
     application
 }
 
@@ -10,11 +10,12 @@ repositories {
     mavenCentral()
 }
 
-val vertxVersion = "5.1.2"
+val vertxVersion = "5.2.1"
 val flywayVersion = "10.20.0"
-val otelVersion = "1.44.1"
+val otelVersion = "1.62.0"
 
 dependencies {
+    implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.8"))
     implementation("io.vertx:vertx-core:$vertxVersion")
     implementation("io.vertx:vertx-web:$vertxVersion")
     implementation("io.vertx:vertx-pg-client:$vertxVersion")
@@ -25,9 +26,9 @@ dependencies {
 
     implementation("org.flywaydb:flyway-core:$flywayVersion")
     implementation("org.flywaydb:flyway-database-postgresql:$flywayVersion")
-    implementation("org.postgresql:postgresql:42.7.4")
+    implementation("org.postgresql:postgresql:42.7.14")
 
-    implementation("ch.qos.logback:logback-classic:1.5.6")
+    implementation("ch.qos.logback:logback-classic:1.62.0")
 
     implementation("io.arrow-kt:arrow-core:1.2.4")
 
