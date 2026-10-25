@@ -16,6 +16,7 @@ val otelVersion = "1.62.0"
 
 dependencies {
     implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.8"))
+    implementation("ch.qos.logback:logback-classic:1.5.21")
     implementation("io.vertx:vertx-core:$vertxVersion")
     implementation("io.vertx:vertx-web:$vertxVersion")
     implementation("io.vertx:vertx-pg-client:$vertxVersion")
