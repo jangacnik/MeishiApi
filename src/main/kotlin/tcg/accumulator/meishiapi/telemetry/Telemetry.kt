@@ -9,14 +9,10 @@ fun buildOpenTelemetry(serviceName: String): OpenTelemetry =
         .addPropertiesSupplier {
             mapOf(
                 "otel.service.name" to serviceName,
-                "otel.traces.exporter" to tracesExporter(),
+                "otel.traces.exporter" to (System.getenv("OTEL_TRACES_EXPORTER") ?: "none"),
                 "otel.metrics.exporter" to "none",
                 "otel.logs.exporter" to "none",
             )
         }
         .build()
         .openTelemetrySdk
-
-private fun tracesExporter(): String =
-    System.getenv("OTEL_TRACES_EXPORTER")
-        ?: if (System.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != null) "otlp" else "none"
