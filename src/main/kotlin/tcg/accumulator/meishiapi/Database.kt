@@ -1,6 +1,7 @@
 package tcg.accumulator.meishiapi
 
 import io.vertx.core.Vertx
+import io.vertx.core.net.NetClientOptions
 import io.vertx.core.tracing.TracingPolicy
 import io.vertx.pgclient.PgBuilder
 import io.vertx.pgclient.PgConnectOptions
@@ -29,10 +30,11 @@ fun createPool(vertx: Vertx, config: AppConfig): Pool {
         .setUser(config.dbUser)
         .setPassword(config.dbPassword)
         .setTracingPolicy(TracingPolicy.ALWAYS)
-    connectOptions.setConnectTimeout(config.dbConnectTimeoutMillis)
+    val transportOptions = NetClientOptions().setConnectTimeout(config.dbConnectTimeoutMillis)
 
     return PgBuilder.pool()
         .with(PoolOptions().setMaxSize(config.dbPoolSize))
+        .with(transportOptions)
         .connectingTo(connectOptions)
         .using(vertx)
         .build()
