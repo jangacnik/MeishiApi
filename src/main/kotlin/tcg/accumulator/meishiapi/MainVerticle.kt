@@ -7,6 +7,7 @@ import io.vertx.core.http.HttpServerOptions
 import io.vertx.core.tracing.TracingPolicy
 import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
+import io.vertx.sqlclient.Pool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
@@ -19,12 +20,13 @@ import tcg.accumulator.meishiapi.security.PasswordHasher
 class MainVerticle(private val config: AppConfig) : VerticleBase() {
 
     private val log = LoggerFactory.getLogger(MainVerticle::class.java)
+    private var pool: Pool? = null
 
     override fun start(): Future<Void> {
         val promise = Promise.promise<Void>()
 
         CoroutineScope(vertx.dispatcher()).launch {
-            val pool = createPool(vertx, config)
+            val pool = createPool(vertx, config).also { this@MainVerticle.pool = it }
             log.trace("connection pool created")
             val repository: UserRepository = PgUserRepository(pool)
             val hasher = PasswordHasher(vertx)
@@ -32,7 +34,7 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
 
             seedAdminIfMissing(repository, hasher, config)
 
-            val router = buildRouter(vertx, repository, hasher, jwt)
+            val router = buildRouter(vertx, repository, hasher, jwt) { pool.query("SELECT 1").execute().coAwait() }
             log.trace("router built")
 
             vertx.createHttpServer(HttpServerOptions().setTracingPolicy(TracingPolicy.ALWAYS))
@@ -51,6 +53,8 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
 
         return promise.future()
     }
+
+    override fun stop(): Future<*> = pool?.close() ?: Future.succeededFuture<Void>()
 
     private suspend fun seedAdminIfMissing(repository: UserRepository, hasher: PasswordHasher, config: AppConfig) {
         if (repository.countAdmins() == 0) {

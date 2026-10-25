@@ -166,6 +166,31 @@ class AuthHandlerTest {
     }
 
     @Test
+    fun `health endpoints report liveness and readiness`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val router = buildRouter(
+            vertx, FakeUserRepository(), PasswordHasher(vertx), JwtService(vertx, "test-secret"),
+        )
+        val port = vertx.createHttpServer().requestHandler(router).listen(0).coAwait().actualPort()
+        val client = WebClient.create(vertx)
+
+        assertEquals(200, client.get(port, "localhost", "/health/live").send().coAwait().statusCode())
+        assertEquals(200, client.get(port, "localhost", "/health/ready").send().coAwait().statusCode())
+    }
+
+    @Test
+    fun `readiness is 503 when the check fails`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val router = buildRouter(
+            vertx, FakeUserRepository(), PasswordHasher(vertx), JwtService(vertx, "test-secret"),
+        ) { error("database down") }
+        val port = vertx.createHttpServer().requestHandler(router).listen(0).coAwait().actualPort()
+
+        val response = WebClient.create(vertx).get(port, "localhost", "/health/ready").send().coAwait()
+
+        assertEquals(503, response.statusCode())
+        assertEquals("DOWN", response.bodyAsJsonObject().getString("status"))
+    }
+
+    @Test
     fun `register with a nickname already taken is rejected`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val (repo, client, port) = harness(vertx)
         val (_, firstKey) = repo.create(Role.USER)

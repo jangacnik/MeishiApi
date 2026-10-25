@@ -29,9 +29,10 @@ fun createPool(vertx: Vertx, config: AppConfig): Pool {
         .setUser(config.dbUser)
         .setPassword(config.dbPassword)
         .setTracingPolicy(TracingPolicy.ALWAYS)
+    connectOptions.setConnectTimeout(config.dbConnectTimeoutMillis)
 
     return PgBuilder.pool()
-        .with(PoolOptions().setMaxSize(5))
+        .with(PoolOptions().setMaxSize(config.dbPoolSize))
         .connectingTo(connectOptions)
         .using(vertx)
         .build()

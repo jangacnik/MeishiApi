@@ -6,19 +6,35 @@ import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.handler.JWTAuthHandler
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
 
 private const val MAX_BODY_BYTES = 16L * 1024
+private const val READINESS_TIMEOUT_MILLIS = 2_000L
 
 private val log = LoggerFactory.getLogger("tcg.accumulator.meishiapi.http.Routing")
 
-fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher, jwt: JwtService): Router {
+fun buildRouter(
+    vertx: Vertx,
+    repository: UserRepository,
+    hasher: PasswordHasher,
+    jwt: JwtService,
+    readinessCheck: suspend () -> Unit = {},
+): Router {
     val router = Router.router(vertx)
     router.route().handler(BodyHandler.create(false).setBodyLimit(MAX_BODY_BYTES))
     router.route().failureHandler(::handleFailure)
+
+    router.get("/health/live").handler { it.json(JsonObject().put("status", "UP")) }
+    router.get("/health/ready").handler { ctx -> checkReadiness(ctx, readinessCheck) }
 
     val auth = AuthHandler(repository, hasher, jwt)
     router.post("/api/auth/register").handler(auth::register)
@@ -52,6 +68,27 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
     router.route().handler { it.fail(404) }
 
     return router
+}
+
+private fun checkReadiness(ctx: RoutingContext, readinessCheck: suspend () -> Unit) {
+    CoroutineScope(ctx.vertx().dispatcher()).launch {
+        try {
+            withTimeout(READINESS_TIMEOUT_MILLIS) { readinessCheck() }
+            ctx.json(JsonObject().put("status", "UP"))
+        } catch (e: TimeoutCancellationException) {
+            respondNotReady(ctx, e)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            respondNotReady(ctx, e)
+        }
+    }
+}
+
+private fun respondNotReady(ctx: RoutingContext, cause: Throwable) {
+    log.warn("readiness check failed", cause)
+    ctx.response().setStatusCode(503).putHeader("content-type", "application/json")
+        .end(JsonObject().put("status", "DOWN").encode())
 }
 
 private fun handleFailure(ctx: RoutingContext) {
