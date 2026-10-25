@@ -1,5 +1,4 @@
-# __IMAGE__ is substituted by the deploy CI job (see .gitlab-ci.yml) with
-# $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA before kubectl apply.
+# __IMAGE__ is substituted at deploy time with the image built by CI (see .gitea/workflows/ci.yaml).
 #
 # Needs, created once out of band (not by CI):
 #   kubectl create secret generic meishi-api-secrets \
@@ -13,8 +12,8 @@
 #     --from-literal=admin-password='...'
 #
 # Also needs a "regcred" docker-registry secret so the cluster can pull the
-# image (the registry doesn't allow anonymous pulls) - a GitLab deploy token
-# with read_registry scope works:
+# image (the registry doesn't allow anonymous pulls) - a Gitea access token
+# with read:package scope works:
 #   kubectl create secret docker-registry regcred \
 #     --docker-server=<registry host:port> \
 #     --docker-username=<deploy token username> \
