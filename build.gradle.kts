@@ -29,8 +29,6 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql:$flywayVersion")
     implementation("org.postgresql:postgresql:42.7.14")
 
-    implementation("ch.qos.logback:logback-classic:1.62.0")
-
     implementation("io.arrow-kt:arrow-core:1.2.4")
 
     implementation("io.opentelemetry:opentelemetry-api:$otelVersion")
