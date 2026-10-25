@@ -27,18 +27,20 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
     val users = UserHandler(repository, hasher, jwt)
     val jwtAuthHandler = JWTAuthHandler.create(jwt.auth)
 
+    router.route("/api/users*").handler(jwtAuthHandler)
+    router.route("/api/users*").handler(users::loadCaller)
+
     // Self-lookup/self-service: registered ahead of the admin-only wildcard below so any
     // authenticated user (not just admins) can read/edit their own record and manage their
     // own deletion request.
-    router.get("/api/users/me").handler(jwtAuthHandler).handler(users::me)
-    router.patch("/api/users/me").handler(jwtAuthHandler).handler(users::updateProfile)
-    router.patch("/api/users/me/nickname").handler(jwtAuthHandler).handler(users::changeMyNickname)
-    router.patch("/api/users/me/password").handler(jwtAuthHandler).handler(users::changeMyPassword)
-    router.post("/api/users/me/request-deletion").handler(jwtAuthHandler).handler(users::requestDeletion)
-    router.delete("/api/users/me/request-deletion").handler(jwtAuthHandler).handler(users::cancelDeletionRequest)
-    router.get("/api/users/nicknames").handler(jwtAuthHandler).handler(users::nicknames)
+    router.get("/api/users/me").handler(users::me)
+    router.patch("/api/users/me").handler(users::updateProfile)
+    router.patch("/api/users/me/nickname").handler(users::changeMyNickname)
+    router.patch("/api/users/me/password").handler(users::changeMyPassword)
+    router.post("/api/users/me/request-deletion").handler(users::requestDeletion)
+    router.delete("/api/users/me/request-deletion").handler(users::cancelDeletionRequest)
+    router.get("/api/users/nicknames").handler(users::nicknames)
 
-    router.route("/api/users*").handler(jwtAuthHandler)
     router.route("/api/users*").handler(users::requireAdmin)
     router.get("/api/users").handler(users::list)
     router.post("/api/users").handler(users::create)

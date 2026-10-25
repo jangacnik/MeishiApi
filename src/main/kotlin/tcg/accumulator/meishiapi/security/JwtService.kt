@@ -32,7 +32,17 @@ class JwtService(vertx: Vertx, secret: String) {
         return auth.generateToken(claims, JWTOptions().setExpiresInMinutes(60 * 24))
     }
 
-    fun roleOf(principal: JsonObject): Role = Role.valueOf(principal.getString("role"))
+    fun roleOf(principal: JsonObject): Role? {
+        val name = principal.getValue("role") as? String
+        return Role.entries.firstOrNull { it.name == name }
+    }
 
-    fun subjectOf(principal: JsonObject): UUID = UUID.fromString(principal.getString("sub"))
+    fun subjectOf(principal: JsonObject): UUID? {
+        val subject = principal.getValue("sub") as? String ?: return null
+        return try {
+            UUID.fromString(subject)
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+    }
 }

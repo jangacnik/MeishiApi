@@ -4,6 +4,10 @@ import arrow.core.raise.Raise
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
@@ -14,6 +18,8 @@ import tcg.accumulator.meishiapi.security.PasswordHasher
 import java.util.UUID
 
 private const val MIN_PASSWORD_LENGTH = 8
+private const val CALLER_ID_KEY = "callerId"
+private const val CALLER_ROLE_KEY = "callerRole"
 
 class UserHandler(
     private val repository: UserRepository,
@@ -22,9 +28,38 @@ class UserHandler(
 ) {
     private val log = LoggerFactory.getLogger(UserHandler::class.java)
 
+    /**
+     * Resolves the token's subject against the database on every request, so the role and
+     * status used for authorization are current rather than whatever the token was minted with.
+     */
+    fun loadCaller(ctx: RoutingContext) {
+        val callerId = ctx.user()?.principal()?.let(jwt::subjectOf)
+        if (callerId == null) {
+            ctx.fail(401)
+            return
+        }
+        CoroutineScope(ctx.vertx().dispatcher()).launch {
+            val record = try {
+                repository.findAuthRecordById(callerId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ctx.fail(e)
+                return@launch
+            }
+            if (record == null || record.status == Status.FROZEN) {
+                log.warn("rejected token for missing or frozen user {}", callerId)
+                ctx.fail(401)
+                return@launch
+            }
+            ctx.put(CALLER_ID_KEY, callerId)
+            ctx.put(CALLER_ROLE_KEY, record.role)
+            ctx.next()
+        }
+    }
+
     fun requireAdmin(ctx: RoutingContext) {
-        val principal = ctx.user()?.principal()
-        if (principal == null || jwt.roleOf(principal) != Role.ADMIN) {
+        if (ctx.get<Role?>(CALLER_ROLE_KEY) != Role.ADMIN) {
             log.warn("forbidden: admin role required for {} {}", ctx.request().method(), ctx.request().path())
             ctx.fail(403)
             return
@@ -33,16 +68,14 @@ class UserHandler(
     }
 
     fun me(ctx: RoutingContext) = respond(ctx) {
-        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
-        val id = jwt.subjectOf(principal)
+        val id = callerId(ctx)
         val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
         log.trace("self lookup for {}", id)
         JsonResult(toJson(user))
     }
 
     fun updateProfile(ctx: RoutingContext) = respond(ctx) {
-        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
-        val id = jwt.subjectOf(principal)
+        val id = callerId(ctx)
         val body = requiredJsonBody(ctx)
         repository.updateProfile(id, profileFieldsOf(body))
         val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
@@ -51,8 +84,7 @@ class UserHandler(
     }
 
     fun changeMyNickname(ctx: RoutingContext) = respond(ctx) {
-        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
-        val id = jwt.subjectOf(principal)
+        val id = callerId(ctx)
         val body = requiredJsonBody(ctx)
         val nickname = stringField(body, "nickname")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("nickname required"))
@@ -63,8 +95,7 @@ class UserHandler(
     }
 
     fun changeMyPassword(ctx: RoutingContext) = respond(ctx) {
-        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
-        val id = jwt.subjectOf(principal)
+        val id = callerId(ctx)
         val body = requiredJsonBody(ctx)
         val oldPassword = stringField(body, "oldPassword")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("oldPassword required"))
@@ -84,8 +115,7 @@ class UserHandler(
     }
 
     fun requestDeletion(ctx: RoutingContext) = respond(ctx) {
-        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
-        val id = jwt.subjectOf(principal)
+        val id = callerId(ctx)
         repository.requestDeletion(id)
         val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
         log.info("user {} requested account deletion", id)
@@ -93,8 +123,7 @@ class UserHandler(
     }
 
     fun cancelDeletionRequest(ctx: RoutingContext) = respond(ctx) {
-        val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
-        val id = jwt.subjectOf(principal)
+        val id = callerId(ctx)
         repository.cancelDeletionRequest(id)
         val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
         log.info("user {} cancelled deletion request", id)
@@ -181,6 +210,9 @@ class UserHandler(
         }
         NoContentResult()
     }
+
+    private fun Raise<AppError>.callerId(ctx: RoutingContext): UUID =
+        ctx.get<UUID?>(CALLER_ID_KEY) ?: raise(AppError.Unauthorized("unauthenticated"))
 
     private fun Raise<AppError>.pathId(ctx: RoutingContext): UUID =
         parseUuidOrNull(ctx.pathParam("id")) ?: raise(AppError.BadRequest("invalid id"))

@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import tcg.accumulator.meishiapi.model.Role
+import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.repository.FakeUserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
@@ -62,6 +63,47 @@ class UserHandlerTest {
     }
 
     @Test
+    fun `demoted admin's old token is forbidden on admin routes`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (id, _) = h.repo.create(Role.ADMIN)
+        h.repo.activate(id, "admin", "hash")
+        val token = h.jwt.generateToken(id, "admin", Role.ADMIN)
+        h.repo.updateRole(id, Role.USER)
+
+        val response = h.client.get(h.port, "localhost", "/api/users")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(403, response.statusCode())
+    }
+
+    @Test
+    fun `frozen user's old token is rejected on me`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", "hash")
+        val token = h.jwt.generateToken(id, "bob", Role.USER)
+        h.repo.updateStatus(id, Status.FROZEN)
+
+        val response = h.client.get(h.port, "localhost", "/api/users/me")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(401, response.statusCode())
+    }
+
+    @Test
+    fun `token with an unknown role claim is not a server error`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", "hash")
+        val token = h.jwt.auth.generateToken(JsonObject().put("sub", id.toString()).put("role", "FOO"))
+
+        val response = h.client.get(h.port, "localhost", "/api/users")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(403, response.statusCode())
+    }
+
+    @Test
     fun `me returns the caller's own record without requiring admin`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx)
         val (id, _) = h.repo.create(Role.USER)
@@ -86,7 +128,7 @@ class UserHandlerTest {
     }
 
     @Test
-    fun `me for a deleted user returns 404`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+    fun `me for a deleted user returns 401`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx)
         val (id, _) = h.repo.create(Role.USER)
         h.repo.activate(id, "bob", "hash")
@@ -96,7 +138,7 @@ class UserHandlerTest {
         val response = h.client.get(h.port, "localhost", "/api/users/me")
             .putHeader("Authorization", "Bearer $token").send().coAwait()
 
-        assertEquals(404, response.statusCode())
+        assertEquals(401, response.statusCode())
     }
 
     @Test
