@@ -46,7 +46,7 @@ class AppConfigTest {
     }
 
     @Test
-    fun `unset ssl mode leaves the jdbc url unchanged; a set mode reaches the jdbc url`() {
+    fun `unset ssl mode leaves the jdbc url unchanged and a set mode reaches the jdbc url`() {
         val config = load(valid + ("DB_SSL_MODE" to "verify-full"))
         assertEquals(null, load(valid).dbSslMode)
         assertEquals("jdbc:postgresql://localhost:5432/meishi", load(valid).jdbcUrl)
