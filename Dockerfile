@@ -10,10 +10,12 @@ COPY src src
 RUN ./gradlew --no-daemon installDist
 
 FROM eclipse-temurin:21-jre
-RUN useradd --system --create-home --shell /usr/sbin/nologin meishi
+RUN useradd --system --uid 10001 --create-home --shell /usr/sbin/nologin meishi
 WORKDIR /app
 COPY --from=build --chown=meishi:meishi /app/build/install/MeishiApi ./
-USER meishi
+USER 10001
+
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70"
 
 EXPOSE 8080
 ENTRYPOINT ["./bin/MeishiApi"]

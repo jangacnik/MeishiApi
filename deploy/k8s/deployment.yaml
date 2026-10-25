@@ -39,11 +39,24 @@ spec:
       labels:
         app: meishi-api
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: regcred
       containers:
         - name: app
           image: __IMAGE__
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           ports:
             - name: http
               containerPort: 8080
@@ -129,3 +142,6 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}

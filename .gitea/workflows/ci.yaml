@@ -23,15 +23,16 @@ jobs:
         run: |
           echo "${{ secrets.CI_TOKEN }}" | docker login "$REGISTRY" -u ci-bot --password-stdin
           TAG=$(echo "$GITHUB_SHA" | cut -c1-7)
-          docker build  -f Dockerfile -t "$IMAGE:$TAG" -t "$IMAGE:latest" .
+          docker build -f Dockerfile -t "$IMAGE:$TAG" .
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$IMAGE:$TAG"
           docker push "$IMAGE:$TAG"
-          docker push "$IMAGE:latest"
       - name: Bump image tag in homelab-gitops
         run: |
           TAG=$(echo "$GITHUB_SHA" | cut -c1-7)
           rm -rf gitops
-          git clone "https://ci-bot:${{ secrets.CI_TOKEN }}@gitea.gacnikhome.duckdns.org/tcg/homelab-gitops.git" gitops
+          AUTH=$(printf 'ci-bot:%s' "${{ secrets.CI_TOKEN }}" | base64 -w0)
+          git -c "http.extraheader=Authorization: Basic $AUTH" clone https://gitea.gacnikhome.duckdns.org/tcg/homelab-gitops.git gitops
           cd gitops
           sed -i "s/newTag:.*/newTag: $TAG/" apps/meishi-api/kustomization.yaml
           git -c user.name=ci-bot -c user.email=ci-bot@gacnikhome.duckdns.org commit -qam "meishi-api: $TAG"
-          for i in 1 2 3 4 5; do git pull --rebase -q && git push -q && break; sleep 3; done
+          for i in 1 2 3 4 5; do git -c "http.extraheader=Authorization: Basic $AUTH" pull --rebase -q && git -c "http.extraheader=Authorization: Basic $AUTH" push -q && break; sleep 3; done
