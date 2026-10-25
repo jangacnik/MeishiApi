@@ -1,6 +1,7 @@
 package tcg.accumulator.meishiapi.http
 
 import io.vertx.core.Vertx
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.client.WebClient
 import io.vertx.junit5.VertxExtension
@@ -121,6 +122,48 @@ class AuthHandlerTest {
             assertEquals(used.statusCode(), unknown.statusCode())
             assertEquals(used.bodyAsString(), unknown.bodyAsString())
         }
+
+    @Test
+    fun `oversized body is rejected with 413`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (_, client, port) = harness(vertx)
+
+        val response = client.post(port, "localhost", "/api/auth/login")
+            .sendBuffer(Buffer.buffer("x".repeat(1024 * 1024))).coAwait()
+
+        assertEquals(413, response.statusCode())
+    }
+
+    @Test
+    fun `non-string nickname is a 400 on login and register`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (_, client, port) = harness(vertx)
+        val body = JsonObject().put("nickname", 123).put("password", "hunter2")
+            .put("activationKey", UUID.randomUUID().toString())
+
+        assertEquals(400, client.post(port, "localhost", "/api/auth/login").sendJsonObject(body).coAwait().statusCode())
+        assertEquals(400, client.post(port, "localhost", "/api/auth/register").sendJsonObject(body).coAwait().statusCode())
+    }
+
+    @Test
+    fun `malformed json is a 400 with a generic message`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (_, client, port) = harness(vertx)
+
+        val response = client.post(port, "localhost", "/api/auth/login")
+            .putHeader("content-type", "application/json")
+            .sendBuffer(Buffer.buffer("{\"nickname\": ")).coAwait()
+
+        assertEquals(400, response.statusCode())
+        assertEquals("malformed JSON body", response.bodyAsJsonObject().getString("error"))
+    }
+
+    @Test
+    fun `unknown route returns a json 404`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (_, client, port) = harness(vertx)
+
+        val response = client.get(port, "localhost", "/nope").send().coAwait()
+
+        assertEquals(404, response.statusCode())
+        assertEquals("not found", response.bodyAsJsonObject().getString("error"))
+    }
 
     @Test
     fun `register with a nickname already taken is rejected`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {

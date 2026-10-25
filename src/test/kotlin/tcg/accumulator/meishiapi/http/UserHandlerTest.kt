@@ -50,6 +50,18 @@ class UserHandlerTest {
     }
 
     @Test
+    fun `profile update with a non-string field is a 400`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/me")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("email", 123)).coAwait()
+
+        assertEquals(400, response.statusCode())
+    }
+
+    @Test
     fun `me returns the caller's own record without requiring admin`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx)
         val (id, _) = h.repo.create(Role.USER)

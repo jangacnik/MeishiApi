@@ -43,7 +43,7 @@ class UserHandler(
     fun updateProfile(ctx: RoutingContext) = respond(ctx) {
         val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
         val id = jwt.subjectOf(principal)
-        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
+        val body = requiredJsonBody(ctx)
         repository.updateProfile(id, profileFieldsOf(body))
         val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
         log.trace("self profile update for {}", id)
@@ -53,8 +53,8 @@ class UserHandler(
     fun changeMyNickname(ctx: RoutingContext) = respond(ctx) {
         val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
         val id = jwt.subjectOf(principal)
-        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
-        val nickname = body.getString("nickname")?.takeIf { it.isNotBlank() }
+        val body = requiredJsonBody(ctx)
+        val nickname = stringField(body, "nickname")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("nickname required"))
         repository.updateNickname(id, nickname).bind()
         val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
@@ -65,10 +65,10 @@ class UserHandler(
     fun changeMyPassword(ctx: RoutingContext) = respond(ctx) {
         val principal = ctx.user()?.principal() ?: raise(AppError.Unauthorized("unauthenticated"))
         val id = jwt.subjectOf(principal)
-        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
-        val oldPassword = body.getString("oldPassword")?.takeIf { it.isNotBlank() }
+        val body = requiredJsonBody(ctx)
+        val oldPassword = stringField(body, "oldPassword")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("oldPassword required"))
-        val newPassword = body.getString("newPassword")?.takeIf { it.isNotBlank() }
+        val newPassword = stringField(body, "newPassword")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("newPassword required"))
         if (newPassword.length < MIN_PASSWORD_LENGTH) {
             raise(AppError.BadRequest("newPassword must be at least $MIN_PASSWORD_LENGTH characters"))
@@ -116,8 +116,8 @@ class UserHandler(
     }
 
     fun create(ctx: RoutingContext) = respond(ctx) {
-        val body = ctx.body().asJsonObject() ?: JsonObject()
-        val role = body.getString("role")?.let {
+        val body = jsonBodyOrNull(ctx) ?: JsonObject()
+        val role = stringField(body, "role")?.let {
             parseEnumOrNull<Role>(it) ?: raise(AppError.BadRequest("role must be USER or ADMIN"))
         } ?: Role.USER
         val (id, activationKey) = repository.create(role)
@@ -127,8 +127,8 @@ class UserHandler(
 
     fun updateRole(ctx: RoutingContext) = respond(ctx) {
         val id = pathId(ctx)
-        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
-        val role = parseEnumOrNull<Role>(body.getString("role"))
+        val body = requiredJsonBody(ctx)
+        val role = parseEnumOrNull<Role>(stringField(body, "role"))
             ?: raise(AppError.BadRequest("role must be USER or ADMIN"))
         if (!repository.updateRole(id, role)) {
             raise(AppError.NotFound("user not found"))
@@ -138,8 +138,8 @@ class UserHandler(
 
     fun updateStatus(ctx: RoutingContext) = respond(ctx) {
         val id = pathId(ctx)
-        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
-        val status = parseEnumOrNull<Status>(body.getString("status"))
+        val body = requiredJsonBody(ctx)
+        val status = parseEnumOrNull<Status>(stringField(body, "status"))
             ?: raise(AppError.BadRequest("status must be ACTIVE or FROZEN"))
         if (!repository.updateStatus(id, status)) {
             raise(AppError.NotFound("user not found"))
@@ -149,9 +149,9 @@ class UserHandler(
 
     fun adminUpdateUser(ctx: RoutingContext) = respond(ctx) {
         val id = pathId(ctx)
-        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
+        val body = requiredJsonBody(ctx)
         val nickname = if (body.containsKey("nickname")) {
-            body.getString("nickname")?.takeIf { it.isNotBlank() }
+            stringField(body, "nickname")?.takeIf { it.isNotBlank() }
                 ?: raise(AppError.BadRequest("nickname must not be blank"))
         } else {
             null
@@ -164,8 +164,8 @@ class UserHandler(
 
     fun adminSetPassword(ctx: RoutingContext) = respond(ctx) {
         val id = pathId(ctx)
-        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
-        val newPassword = body.getString("newPassword")?.takeIf { it.isNotBlank() }
+        val body = requiredJsonBody(ctx)
+        val newPassword = stringField(body, "newPassword")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("newPassword required"))
         if (!repository.updatePassword(id, hasher.hash(newPassword))) {
             raise(AppError.NotFound("user not found"))
@@ -198,10 +198,10 @@ class UserHandler(
         "avatarKey" to "avatar_key",
     )
 
-    private fun profileFieldsOf(body: JsonObject): Map<String, String?> =
+    private fun Raise<AppError>.profileFieldsOf(body: JsonObject): Map<String, String?> =
         profileFieldColumns.entries
             .filter { (jsonKey, _) -> body.containsKey(jsonKey) }
-            .associate { (jsonKey, column) -> column to body.getString(jsonKey) }
+            .associate { (jsonKey, column) -> column to stringField(body, jsonKey) }
 
     private fun toJson(user: User) = JsonObject()
         .put("id", user.id.toString())

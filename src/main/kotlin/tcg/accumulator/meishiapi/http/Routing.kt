@@ -11,11 +11,13 @@ import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
 
+private const val MAX_BODY_BYTES = 16L * 1024
+
 private val log = LoggerFactory.getLogger("tcg.accumulator.meishiapi.http.Routing")
 
 fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher, jwt: JwtService): Router {
     val router = Router.router(vertx)
-    router.route().handler(BodyHandler.create())
+    router.route().handler(BodyHandler.create(false).setBodyLimit(MAX_BODY_BYTES))
     router.route().failureHandler(::handleFailure)
 
     val auth = AuthHandler(repository, hasher, jwt)
@@ -45,6 +47,7 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
     router.patch("/api/users/:id/profile").handler(users::adminUpdateUser)
     router.patch("/api/users/:id/password").handler(users::adminSetPassword)
     router.delete("/api/users/:id").handler(users::delete)
+    router.route().handler { it.fail(404) }
 
     return router
 }
@@ -52,7 +55,7 @@ fun buildRouter(vertx: Vertx, repository: UserRepository, hasher: PasswordHasher
 private fun handleFailure(ctx: RoutingContext) {
     val status = if (ctx.statusCode() > 0) ctx.statusCode() else 500
     val failure = ctx.failure()
-    val message = failure?.message ?: defaultMessageFor(status)
+    val message = defaultMessageFor(status)
     if (status >= 500) {
         log.error("request failed: {} {}", ctx.request().method(), ctx.request().path(), failure)
     } else {
@@ -68,5 +71,6 @@ private fun defaultMessageFor(status: Int): String = when (status) {
     403 -> "forbidden"
     404 -> "not found"
     409 -> "conflict"
+    413 -> "payload too large"
     else -> "internal error"
 }

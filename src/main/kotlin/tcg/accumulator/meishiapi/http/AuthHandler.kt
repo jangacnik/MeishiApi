@@ -19,12 +19,12 @@ class AuthHandler(
     private val log = LoggerFactory.getLogger(AuthHandler::class.java)
 
     fun register(ctx: RoutingContext) = respond(ctx) {
-        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
-        val activationKey = parseUuidOrNull(body.getString("activationKey"))
+        val body = requiredJsonBody(ctx)
+        val activationKey = parseUuidOrNull(stringField(body, "activationKey"))
             ?: raise(AppError.BadRequest("invalid activationKey"))
-        val nickname = body.getString("nickname")?.takeIf { it.isNotBlank() }
+        val nickname = stringField(body, "nickname")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("nickname required"))
-        val password = body.getString("password")?.takeIf { it.isNotBlank() }
+        val password = stringField(body, "password")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("password required"))
         log.trace("register attempt activationKey={}", activationKey)
 
@@ -42,10 +42,10 @@ class AuthHandler(
     }
 
     fun login(ctx: RoutingContext) = respond(ctx) {
-        val body = ctx.body().asJsonObject() ?: raise(AppError.BadRequest("request body required"))
-        val nickname = body.getString("nickname")?.takeIf { it.isNotBlank() }
+        val body = requiredJsonBody(ctx)
+        val nickname = stringField(body, "nickname")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("nickname required"))
-        val password = body.getString("password")?.takeIf { it.isNotBlank() }
+        val password = stringField(body, "password")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("password required"))
         log.trace("login attempt nickname='{}'", nickname)
 
