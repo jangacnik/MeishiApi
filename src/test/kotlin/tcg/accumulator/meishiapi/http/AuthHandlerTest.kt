@@ -191,6 +191,20 @@ class AuthHandlerTest {
     }
 
     @Test
+    fun `request id header is echoed when valid and generated otherwise`(vertx: Vertx) =
+        runBlocking(vertx.dispatcher()) {
+            val (_, client, port) = harness(vertx)
+
+            val echoed = client.get(port, "localhost", "/health/live")
+                .putHeader("X-Request-Id", "abc-123").send().coAwait()
+            val generated = client.get(port, "localhost", "/health/live")
+                .putHeader("X-Request-Id", "bad id!").send().coAwait()
+
+            assertEquals("abc-123", echoed.getHeader("X-Request-Id"))
+            assertNotNull(UUID.fromString(generated.getHeader("X-Request-Id")))
+        }
+
+    @Test
     fun `register with a nickname already taken is rejected`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val (repo, client, port) = harness(vertx)
         val (_, firstKey) = repo.create(Role.USER)

@@ -35,7 +35,6 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     }
 
     override suspend fun findByActivationKey(activationKey: UUID): AuthRecord? {
-        log.trace("lookup by activationKey={}", activationKey)
         val rows = pool.preparedQuery(
             "SELECT id, nickname, password_hash, role, status, activated_at FROM users WHERE activation_key = $1",
         ).execute(Tuple.of(activationKey)).coAwait()

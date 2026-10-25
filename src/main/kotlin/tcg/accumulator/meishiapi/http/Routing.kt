@@ -16,7 +16,10 @@ import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
+import java.util.UUID
 
+private const val REQUEST_ID_HEADER = "X-Request-Id"
+private val REQUEST_ID_PATTERN = Regex("^[A-Za-z0-9-]{1,64}$")
 private const val MAX_BODY_BYTES = 16L * 1024
 private const val READINESS_TIMEOUT_MILLIS = 2_000L
 
@@ -30,6 +33,7 @@ fun buildRouter(
     readinessCheck: suspend () -> Unit = {},
 ): Router {
     val router = Router.router(vertx)
+    router.route().handler(::logRequest)
     router.route().handler(BodyHandler.create(false).setBodyLimit(MAX_BODY_BYTES))
     router.route().failureHandler(::handleFailure)
 
@@ -68,6 +72,20 @@ fun buildRouter(
     router.route().handler { it.fail(404) }
 
     return router
+}
+
+private fun logRequest(ctx: RoutingContext) {
+    val requestId = ctx.request().getHeader(REQUEST_ID_HEADER)?.takeIf { REQUEST_ID_PATTERN.matches(it) }
+        ?: UUID.randomUUID().toString()
+    val startNanos = System.nanoTime()
+    ctx.response().putHeader(REQUEST_ID_HEADER, requestId)
+    ctx.addBodyEndHandler {
+        log.info(
+            "request {} {} {} -> {} in {} ms", requestId, ctx.request().method(), ctx.request().path(),
+            ctx.response().statusCode, (System.nanoTime() - startNanos) / 1_000_000,
+        )
+    }
+    ctx.next()
 }
 
 private fun checkReadiness(ctx: RoutingContext, readinessCheck: suspend () -> Unit) {

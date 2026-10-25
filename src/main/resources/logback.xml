@@ -5,7 +5,7 @@
         </encoder>
     </appender>
 
-    <logger name="tcg.accumulator.meishiapi" level="DEBUG"/>
+    <logger name="tcg.accumulator.meishiapi" level="${LOG_LEVEL:-INFO}"/>
 
     <root level="INFO">
         <appender-ref ref="STDOUT"/>

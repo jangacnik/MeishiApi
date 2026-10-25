@@ -26,11 +26,10 @@ class AuthHandler(
             ?: raise(AppError.BadRequest("nickname required"))
         val password = stringField(body, "password")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("password required"))
-        log.trace("register attempt activationKey={}", activationKey)
 
         val record = repository.findByActivationKey(activationKey)
         if (record == null || record.activatedAt != null) {
-            log.warn("register failed: unknown or already used activationKey={}", activationKey)
+            log.warn("register failed: unknown or already used activation key")
             raise(AppError.Conflict("invalid activation key"))
         }
 
@@ -51,7 +50,7 @@ class AuthHandler(
 
         val record = repository.findByNickname(nickname)
         if (record == null || record.activatedAt == null) {
-            log.warn("login failed: unknown or inactive nickname '{}'", nickname)
+            log.warn("login failed: unknown or inactive nickname")
             raise(AppError.Unauthorized("invalid nickname or password"))
         }
         if (record.status == Status.FROZEN) {
