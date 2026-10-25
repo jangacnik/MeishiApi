@@ -17,6 +17,8 @@ data class AuthRecord(
     val activatedAt: OffsetDateTime?,
 )
 
+data class NicknameEntry(val id: UUID, val nickname: String)
+
 interface UserRepository {
     suspend fun create(role: Role): Pair<UUID, UUID>
     suspend fun findByActivationKey(activationKey: UUID): AuthRecord?
@@ -25,6 +27,7 @@ interface UserRepository {
     suspend fun findAuthRecordById(id: UUID): AuthRecord?
     suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit>
     suspend fun listAll(): List<User>
+    suspend fun listActivatedNicknames(): List<NicknameEntry>
     suspend fun updateRole(id: UUID, role: Role): Boolean
     suspend fun updateStatus(id: UUID, status: Status): Boolean
 

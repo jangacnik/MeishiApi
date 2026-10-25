@@ -94,6 +94,14 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         return rows.map(::toUser)
     }
 
+    override suspend fun listActivatedNicknames(): List<NicknameEntry> {
+        log.trace("list activated nicknames")
+        val rows = pool.query(
+            "SELECT id, nickname FROM users WHERE activated_at IS NOT NULL ORDER BY created_at",
+        ).execute().coAwait()
+        return rows.map { NicknameEntry(it.getUUID("id"), it.getString("nickname")) }
+    }
+
     override suspend fun updateProfile(id: UUID, fields: Map<String, String?>): Boolean {
         if (fields.isEmpty()) return findById(id) != null
         log.trace("update profile of {} fields={}", id, fields.keys)

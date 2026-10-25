@@ -71,6 +71,10 @@ class FakeUserRepository : UserRepository {
     override suspend fun listAll(): List<User> =
         byId.values.sortedBy { it.createdAt }.map { it.toUser() }
 
+    override suspend fun listActivatedNicknames(): List<NicknameEntry> =
+        byId.values.filter { it.activatedAt != null }.sortedBy { it.createdAt }
+            .map { NicknameEntry(it.id, checkNotNull(it.nickname)) }
+
     override suspend fun updateRole(id: UUID, role: Role): Boolean {
         val record = byId[id] ?: return false
         record.role = role
