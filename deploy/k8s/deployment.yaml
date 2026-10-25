@@ -11,6 +11,11 @@
 #     --from-literal=admin-nickname='...' \
 #     --from-literal=admin-password='...'
 #
+# Optional keys in the same secret (the app falls back to defaults when absent):
+#   db-ssl-mode          disable (default) | allow | prefer | require | verify-ca | verify-full
+#   db-migration-user    separate role that owns the schema (DDL); db-user then only needs DML
+#   db-migration-password
+#
 # Also needs a "regcred" docker-registry secret so the cluster can pull the
 # image (the registry doesn't allow anonymous pulls) - a Gitea access token
 # with read:package scope works:
@@ -70,6 +75,24 @@ spec:
                 secretKeyRef:
                   name: meishi-api-secrets
                   key: db-password
+            - name: DB_SSL_MODE
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: db-ssl-mode
+                  optional: true
+            - name: DB_MIGRATION_USER
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: db-migration-user
+                  optional: true
+            - name: DB_MIGRATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: meishi-api-secrets
+                  key: db-migration-password
+                  optional: true
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

@@ -5,6 +5,7 @@ import io.vertx.core.net.NetClientOptions
 import io.vertx.core.tracing.TracingPolicy
 import io.vertx.pgclient.PgBuilder
 import io.vertx.pgclient.PgConnectOptions
+import io.vertx.pgclient.SslMode
 import io.vertx.sqlclient.Pool
 import io.vertx.sqlclient.PoolOptions
 import org.flywaydb.core.Flyway
@@ -13,9 +14,9 @@ import org.slf4j.LoggerFactory
 private val log = LoggerFactory.getLogger("tcg.accumulator.meishiapi.Database")
 
 fun runMigrations(config: AppConfig) {
-    log.info("running migrations against {}", config.jdbcUrl)
+    log.info("running migrations against {}:{}/{} as {}", config.dbHost, config.dbPort, config.dbName, config.migrationUser)
     val result = Flyway.configure()
-        .dataSource(config.jdbcUrl, config.dbUser, config.dbPassword)
+        .dataSource(config.jdbcUrl, config.migrationUser, config.migrationPassword)
         .load()
         .migrate()
     log.info("applied {} migration(s)", result.migrationsExecuted)
@@ -29,6 +30,7 @@ fun createPool(vertx: Vertx, config: AppConfig): Pool {
         .setDatabase(config.dbName)
         .setUser(config.dbUser)
         .setPassword(config.dbPassword)
+        .setSslMode(SslMode.valueOf((config.dbSslMode ?: "disable").uppercase().replace('-', '_')))
         .setTracingPolicy(TracingPolicy.ALWAYS)
     val transportOptions = NetClientOptions().setConnectTimeout(config.dbConnectTimeoutMillis)
 

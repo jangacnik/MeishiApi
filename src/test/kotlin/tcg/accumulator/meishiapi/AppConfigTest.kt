@@ -44,4 +44,32 @@ class AppConfigTest {
     fun `default admin password fails`() {
         assertFailsWith<IllegalStateException> { load(valid + ("ADMIN_PASSWORD" to "admin")) }
     }
+
+    @Test
+    fun `unset ssl mode leaves the jdbc url unchanged; a set mode reaches the jdbc url`() {
+        val config = load(valid + ("DB_SSL_MODE" to "verify-full"))
+        assertEquals(null, load(valid).dbSslMode)
+        assertEquals("jdbc:postgresql://localhost:5432/meishi", load(valid).jdbcUrl)
+        assertEquals("jdbc:postgresql://localhost:5432/meishi?sslmode=verify-full", config.jdbcUrl)
+    }
+
+    @Test
+    fun `unknown ssl mode fails`() {
+        assertFailsWith<IllegalStateException> { load(valid + ("DB_SSL_MODE" to "yes")) }
+    }
+
+    @Test
+    fun `migration credentials default to the runtime credentials`() {
+        val default = load(valid)
+        assertEquals(default.dbUser, default.migrationUser)
+        assertEquals("db-pass", default.migrationPassword)
+        val split = load(valid + ("DB_MIGRATION_USER" to "migrator") + ("DB_MIGRATION_PASSWORD" to "m-pass"))
+        assertEquals("migrator", split.migrationUser)
+        assertEquals("m-pass", split.migrationPassword)
+    }
+
+    @Test
+    fun `migration user without password fails`() {
+        assertFailsWith<IllegalStateException> { load(valid + ("DB_MIGRATION_USER" to "migrator")) }
+    }
 }
