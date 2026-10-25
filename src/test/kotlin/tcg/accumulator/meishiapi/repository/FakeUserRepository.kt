@@ -54,10 +54,11 @@ class FakeUserRepository : UserRepository {
         byId.values.firstOrNull { it.nickname == nickname }?.toAuthRecord()
 
     override suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit> = either {
+        val record = byId.getValue(id)
+        if (record.activatedAt != null) raise(AppError.Conflict("invalid activation key"))
         if (byId.values.any { it.nickname == nickname && it.id != id }) {
             raise(AppError.Conflict("nickname already taken"))
         }
-        val record = byId.getValue(id)
         record.nickname = nickname
         record.passwordHash = passwordHash
         record.activatedAt = OffsetDateTime.now()

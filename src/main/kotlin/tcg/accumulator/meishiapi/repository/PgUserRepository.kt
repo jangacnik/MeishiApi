@@ -53,9 +53,14 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     override suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit> = either {
         log.trace("activate user {} with nickname '{}'", id, nickname)
         try {
-            pool.preparedQuery(
-                "UPDATE users SET nickname = $1, password_hash = $2, activated_at = now() WHERE id = $3",
+            val result = pool.preparedQuery(
+                "UPDATE users SET nickname = $1, password_hash = $2, activated_at = now() " +
+                    "WHERE id = $3 AND activated_at IS NULL",
             ).execute(Tuple.of(nickname, passwordHash, id)).coAwait()
+            if (result.rowCount() == 0) {
+                log.warn("activation of {} failed: already activated", id)
+                raise(AppError.Conflict("invalid activation key"))
+            }
             log.info("activated user {} as '{}'", id, nickname)
         } catch (e: PgException) {
             if (e.sqlState == POSTGRES_UNIQUE_VIOLATION) {

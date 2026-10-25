@@ -29,13 +29,9 @@ class AuthHandler(
         log.trace("register attempt activationKey={}", activationKey)
 
         val record = repository.findByActivationKey(activationKey)
-            ?: run {
-                log.warn("register failed: unknown activationKey={}", activationKey)
-                raise(AppError.Conflict("invalid activation key"))
-            }
-        if (record.activatedAt != null) {
-            log.warn("register failed: activationKey={} already used", activationKey)
-            raise(AppError.Conflict("activation key already used"))
+        if (record == null || record.activatedAt != null) {
+            log.warn("register failed: unknown or already used activationKey={}", activationKey)
+            raise(AppError.Conflict("invalid activation key"))
         }
 
         repository.activate(record.id, nickname, hasher.hash(password)).bind()

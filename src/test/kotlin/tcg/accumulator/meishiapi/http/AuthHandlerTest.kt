@@ -6,6 +6,8 @@ import io.vertx.ext.web.client.WebClient
 import io.vertx.junit5.VertxExtension
 import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
@@ -14,6 +16,7 @@ import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.repository.FakeUserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
@@ -83,6 +86,41 @@ class AuthHandlerTest {
 
         assertEquals(409, second.statusCode())
     }
+
+    @Test
+    fun `concurrent registers with the same activation key yield exactly one winner`(vertx: Vertx) =
+        runBlocking(vertx.dispatcher()) {
+            val (repo, client, port) = harness(vertx)
+            val (_, activationKey) = repo.create(Role.USER)
+            fun attempt(nickname: String) = async {
+                client.post(port, "localhost", "/api/auth/register").sendJsonObject(
+                    JsonObject().put("activationKey", activationKey.toString())
+                        .put("nickname", nickname).put("password", "hunter2"),
+                ).coAwait().statusCode()
+            }
+
+            val statuses = listOf(attempt("alice"), attempt("mallory")).awaitAll()
+
+            assertEquals(listOf(200, 409), statuses.sorted())
+        }
+
+    @Test
+    fun `register with unknown key returns the same status and body as a used key`(vertx: Vertx) =
+        runBlocking(vertx.dispatcher()) {
+            val (repo, client, port) = harness(vertx)
+            val (_, usedKey) = repo.create(Role.USER)
+            fun register(key: UUID, nickname: String) = client.post(port, "localhost", "/api/auth/register")
+                .sendJsonObject(
+                    JsonObject().put("activationKey", key.toString()).put("nickname", nickname).put("password", "hunter2"),
+                )
+            register(usedKey, "alice").coAwait()
+
+            val used = register(usedKey, "bob").coAwait()
+            val unknown = register(UUID.randomUUID(), "bob").coAwait()
+
+            assertEquals(used.statusCode(), unknown.statusCode())
+            assertEquals(used.bodyAsString(), unknown.bodyAsString())
+        }
 
     @Test
     fun `register with a nickname already taken is rejected`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
