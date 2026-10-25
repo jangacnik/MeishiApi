@@ -1,0 +1,37 @@
+name: ci
+on:
+  push:
+    branches: ['**']
+env:
+  REGISTRY: gitea.gacnikhome.duckdns.org
+  IMAGE: gitea.gacnikhome.duckdns.org/tcg/meishiapi
+jobs:
+  test:
+    runs-on: host
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: |
+          docker run --rm --network host --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" -e HOME=/tmp -e GRADLE_USER_HOME=/tmp/gradle -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD":/w -w /w gradle:9.3.0-jdk21 gradle --no-daemon test
+  build:
+    needs: test
+    if: github.ref == 'refs/heads/master'
+    runs-on: host
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and push image
+        run: |
+          echo "${{ secrets.CI_TOKEN }}" | docker login "$REGISTRY" -u ci-bot --password-stdin
+          TAG=$(echo "$GITHUB_SHA" | cut -c1-7)
+          docker build  -f Dockerfile -t "$IMAGE:$TAG" -t "$IMAGE:latest" .
+          docker push "$IMAGE:$TAG"
+          docker push "$IMAGE:latest"
+      - name: Bump image tag in homelab-gitops
+        run: |
+          TAG=$(echo "$GITHUB_SHA" | cut -c1-7)
+          rm -rf gitops
+          git clone "https://ci-bot:${{ secrets.CI_TOKEN }}@gitea.gacnikhome.duckdns.org/tcg/homelab-gitops.git" gitops
+          cd gitops
+          sed -i "s/newTag:.*/newTag: $TAG/" apps/meishi-api/kustomization.yaml
+          git -c user.name=ci-bot -c user.email=ci-bot@gacnikhome.duckdns.org commit -qam "meishi-api: $TAG"
+          for i in 1 2 3 4 5; do git pull --rebase -q && git push -q && break; sleep 3; done
