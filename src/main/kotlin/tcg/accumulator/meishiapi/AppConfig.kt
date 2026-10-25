@@ -14,8 +14,23 @@ data class AppConfig(
     val jdbcUrl: String get() = "jdbc:postgresql://$dbHost:$dbPort/$dbName"
 
     companion object {
-        fun fromEnv(): AppConfig {
-            fun env(name: String, default: String) = System.getenv(name) ?: default
+        private const val MIN_JWT_SECRET_LENGTH = 32
+        private const val KNOWN_DEV_JWT_SECRET = "dev-secret-change-me"
+        private const val KNOWN_DEFAULT_ADMIN_PASSWORD = "admin"
+
+        fun fromEnv(getenv: (String) -> String? = System::getenv): AppConfig {
+            fun env(name: String, default: String) = getenv(name) ?: default
+            fun required(name: String) = getenv(name)?.takeIf { it.isNotBlank() }
+                ?: error("required environment variable $name is not set")
+
+            val jwtSecret = required("JWT_SECRET")
+            check(jwtSecret.toByteArray().size >= MIN_JWT_SECRET_LENGTH && jwtSecret != KNOWN_DEV_JWT_SECRET) {
+                "JWT_SECRET must be at least $MIN_JWT_SECRET_LENGTH bytes and not the known development value"
+            }
+            val adminPassword = required("ADMIN_PASSWORD")
+            check(adminPassword != KNOWN_DEFAULT_ADMIN_PASSWORD) {
+                "ADMIN_PASSWORD must not be the default value '$KNOWN_DEFAULT_ADMIN_PASSWORD'"
+            }
 
             return AppConfig(
                 httpPort = env("HTTP_PORT", "8080").toInt(),
@@ -23,10 +38,10 @@ data class AppConfig(
                 dbPort = env("DB_PORT", "5432").toInt(),
                 dbName = env("DB_NAME", "meishi"),
                 dbUser = env("DB_USER", "meishi"),
-                dbPassword = env("DB_PASSWORD", "meishi"),
-                jwtSecret = env("JWT_SECRET", "dev-secret-change-me"),
+                dbPassword = required("DB_PASSWORD"),
+                jwtSecret = jwtSecret,
                 adminNickname = env("ADMIN_NICKNAME", "admin"),
-                adminPassword = env("ADMIN_PASSWORD", "admin"),
+                adminPassword = adminPassword,
             )
         }
     }
