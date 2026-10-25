@@ -1,0 +1,11 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    { "matchPackageNames": ["org.flywaydb:**"], "groupName": "flyway" },
+    { "matchPackageNames": ["io.opentelemetry:**"], "groupName": "opentelemetry" },
+    { "matchPackageNames": ["io.vertx:**"], "groupName": "vertx" }
+  ]
+}

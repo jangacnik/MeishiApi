@@ -1,0 +1,14 @@
+name: scan
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+jobs:
+  image-scan:
+    runs-on: host
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image and scan for HIGH/CRITICAL vulnerabilities
+        run: |
+          docker build -f Dockerfile -t meishiapi-scan:local .
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed meishiapi-scan:local
