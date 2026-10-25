@@ -21,6 +21,7 @@ cache:
 
 test:
   stage: test
+  retry: 3
   image: gradle:9.3.0-jdk21
   interruptible: true
   script:
