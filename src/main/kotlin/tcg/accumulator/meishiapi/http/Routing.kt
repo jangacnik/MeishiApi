@@ -75,8 +75,8 @@ fun buildRouter(
 }
 
 private fun logRequest(ctx: RoutingContext) {
-    val requestId = ctx.request().getHeader(REQUEST_ID_HEADER)?.takeIf { REQUEST_ID_PATTERN.matches(it) }
-        ?: UUID.randomUUID().toString()
+    val incomingId: String? = ctx.request().getHeader(REQUEST_ID_HEADER)
+    val requestId = incomingId?.takeIf { REQUEST_ID_PATTERN.matches(it) } ?: UUID.randomUUID().toString()
     val startNanos = System.nanoTime()
     ctx.response().putHeader(REQUEST_ID_HEADER, requestId)
     ctx.addBodyEndHandler {
