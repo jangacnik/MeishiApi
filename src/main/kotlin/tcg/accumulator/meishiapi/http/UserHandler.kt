@@ -205,6 +205,10 @@ class UserHandler(
 
     fun delete(ctx: RoutingContext) = respond(ctx) {
         val id = pathId(ctx)
+        val target = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        if (target.role == Role.ADMIN && repository.countAdmins() <= 1) {
+            raise(AppError.Conflict("cannot delete the last admin"))
+        }
         if (!repository.delete(id)) {
             raise(AppError.NotFound("user not found"))
         }

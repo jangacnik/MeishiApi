@@ -270,6 +270,32 @@ class UserHandlerTest {
     }
 
     @Test
+    fun `delete of an admin succeeds while another admin remains`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        val (otherAdminId, _) = h.repo.create(Role.ADMIN)
+
+        val response = h.client.delete(h.port, "localhost", "/api/users/$otherAdminId")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(204, response.statusCode())
+        assertEquals(1, h.repo.countAdmins())
+    }
+
+    @Test
+    fun `last admin deleting themselves returns 409`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        val selfId = h.repo.listAll().single { it.role == Role.ADMIN }.id
+
+        val response = h.client.delete(h.port, "localhost", "/api/users/$selfId")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(409, response.statusCode())
+        assertEquals(1, h.repo.countAdmins())
+    }
+
+    @Test
     fun `changeMyNickname updates the caller's nickname`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx)
         val token = userToken(h)
