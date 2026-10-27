@@ -18,6 +18,7 @@ import tcg.accumulator.meishiapi.security.PasswordHasher
 import java.util.UUID
 
 private const val MIN_PASSWORD_LENGTH = 8
+private val DISCORD_NAME_PATTERN = Regex("[a-z0-9_.]{2,32}")
 private const val CALLER_ID_KEY = "callerId"
 private const val CALLER_ROLE_KEY = "callerRole"
 
@@ -232,12 +233,20 @@ class UserHandler(
         "city" to "city",
         "country" to "country",
         "avatarKey" to "avatar_key",
+        "discordName" to "discord_name",
     )
 
     private fun Raise<AppError>.profileFieldsOf(body: JsonObject): Map<String, String?> =
         profileFieldColumns.entries
             .filter { (jsonKey, _) -> body.containsKey(jsonKey) }
             .associate { (jsonKey, column) -> column to stringField(body, jsonKey) }
+            .also { fields ->
+                fields["discord_name"]?.let {
+                    if (!DISCORD_NAME_PATTERN.matches(it)) {
+                        raise(AppError.BadRequest("discordName must be 2-32 characters of a-z, 0-9, _ or ."))
+                    }
+                }
+            }
 
     private fun toJson(user: User) = JsonObject()
         .put("id", user.id.toString())
@@ -256,5 +265,6 @@ class UserHandler(
         .put("city", user.city)
         .put("country", user.country)
         .put("avatarKey", user.avatarKey)
+        .put("discordName", user.discordName)
         .put("deletionRequestedAt", user.deletionRequestedAt?.toString())
 }

@@ -118,6 +118,15 @@ class PgUserRepositoryTest {
     }
 
     @Test
+    fun `updateProfile persists discord_name`() = runBlocking {
+        val id = activatedUser("alice")
+
+        assertTrue(repo.updateProfile(id, mapOf("discord_name" to "alice_d")))
+
+        assertEquals("alice_d", assertNotNull(repo.findById(id)).discordName)
+    }
+
+    @Test
     fun `updateProfile and requestDeletion report false for a missing user`() = runBlocking {
         val missing = UUID.randomUUID()
 

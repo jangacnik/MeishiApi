@@ -31,6 +31,7 @@ data class User(
     val city: String? = null,
     val country: String? = null,
     val avatarKey: String? = null,
+    val discordName: String? = null,
     val deletionRequestedAt: OffsetDateTime? = null,
 ) {
     val isActivated: Boolean get() = activatedAt != null

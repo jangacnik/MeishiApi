@@ -18,7 +18,7 @@ private const val POSTGRES_UNIQUE_VIOLATION = "23505"
 private const val FAILED_LOGIN_FREEZE_THRESHOLD = 3
 private const val USER_COLUMNS = "id, nickname, role, status, activation_key, activated_at, created_at, " +
     "email, phone, first_name, last_name, address_line1, address_line2, postal_code, city, country, " +
-    "avatar_key, deletion_requested_at"
+    "avatar_key, discord_name, deletion_requested_at"
 
 class PgUserRepository(private val pool: Pool) : UserRepository {
 
@@ -268,6 +268,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         city = row.getString("city"),
         country = row.getString("country"),
         avatarKey = row.getString("avatar_key"),
+        discordName = row.getString("discord_name"),
         deletionRequestedAt = row.getOffsetDateTime("deletion_requested_at"),
     )
 }

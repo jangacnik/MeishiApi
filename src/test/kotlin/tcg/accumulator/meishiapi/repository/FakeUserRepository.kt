@@ -35,6 +35,7 @@ class FakeUserRepository : UserRepository {
         var city: String? = null,
         var country: String? = null,
         var avatarKey: String? = null,
+        var discordName: String? = null,
         var deletionRequestedAt: OffsetDateTime? = null,
     )
 
@@ -133,6 +134,7 @@ class FakeUserRepository : UserRepository {
                 "city" -> city = value
                 "country" -> country = value
                 "avatar_key" -> avatarKey = value
+                "discord_name" -> discordName = value
             }
         }
     }
@@ -177,6 +179,6 @@ class FakeUserRepository : UserRepository {
     private fun Record.toUser() = User(
         id, nickname, role, status, activationKey, activatedAt, createdAt,
         email, phone, firstName, lastName, addressLine1, addressLine2, postalCode, city, country,
-        avatarKey, deletionRequestedAt,
+        avatarKey, discordName, deletionRequestedAt,
     )
 }

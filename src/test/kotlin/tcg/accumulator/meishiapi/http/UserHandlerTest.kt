@@ -63,6 +63,36 @@ class UserHandlerTest {
     }
 
     @Test
+    fun `profile update stores and returns a valid discordName`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+
+        val update = h.client.patch(h.port, "localhost", "/api/users/me")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("discordName", "bob_99.x")).coAwait()
+        val me = h.client.get(h.port, "localhost", "/api/users/me")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(200, update.statusCode())
+        assertEquals("bob_99.x", update.bodyAsJsonObject().getString("discordName"))
+        assertEquals("bob_99.x", me.bodyAsJsonObject().getString("discordName"))
+    }
+
+    @Test
+    fun `profile update rejects an invalid discordName with a 400`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+
+        listOf("x", "a".repeat(33), "Bob", "bob smith", "").forEach { invalid ->
+            val response = h.client.patch(h.port, "localhost", "/api/users/me")
+                .putHeader("Authorization", "Bearer $token")
+                .sendJsonObject(JsonObject().put("discordName", invalid)).coAwait()
+
+            assertEquals(400, response.statusCode(), "discordName=$invalid")
+        }
+    }
+
+    @Test
     fun `demoted admin's old token is forbidden on admin routes`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx)
         val (id, _) = h.repo.create(Role.ADMIN)
