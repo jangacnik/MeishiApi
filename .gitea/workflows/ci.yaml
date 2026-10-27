@@ -12,7 +12,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test
         run: |
-          docker run --rm -e CI=true --user "$(id -u):$(id -g)" -e HOME=/tmp -e GRADLE_USER_HOME=/tmp/gradle -v "$PWD":/w -w /w gradle:9.3.0-jdk21 gradle --no-daemon test
+          NET="ci-$GITHUB_RUN_ID-$GITHUB_RUN_NUMBER"
+          docker network create "$NET"
+          trap 'docker rm -f "$NET-db" >/dev/null 2>&1; docker network rm "$NET" >/dev/null 2>&1' EXIT
+          docker run -d --name "$NET-db" --network "$NET" -e POSTGRES_DB=meishi_test -e POSTGRES_USER=meishi -e POSTGRES_PASSWORD=meishi --health-cmd "pg_isready -U meishi" --health-interval 2s --health-retries 30 postgres:16
+          until [ "$(docker inspect -f '{{.State.Health.Status}}' "$NET-db")" = healthy ]; do sleep 2; done
+          docker run --rm --network "$NET" -e CI=true -e TEST_DB_URL="jdbc:postgresql://$NET-db:5432/meishi_test" --user "$(id -u):$(id -g)" -e HOME=/tmp -e GRADLE_USER_HOME=/tmp/gradle -v "$PWD":/w -w /w gradle:9.3.0-jdk21 gradle --no-daemon test jacocoTestCoverageVerification
   build:
     needs: test
     if: github.ref == 'refs/heads/master'
