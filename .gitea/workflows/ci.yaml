@@ -29,7 +29,11 @@ jobs:
           echo "${{ secrets.CI_TOKEN }}" | docker login "$REGISTRY" -u ci-bot --password-stdin
           TAG=$(echo "$GITHUB_SHA" | cut -c1-7)
           docker build -f Dockerfile -t "$IMAGE:$TAG" .
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$IMAGE:$TAG"
+          for i in 1 2 3; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$IMAGE:$TAG" && break
+            [ "$i" = 3 ] && exit 1
+            sleep 10
+          done
           docker push "$IMAGE:$TAG"
       - name: Bump image tag in homelab-gitops
         run: |
