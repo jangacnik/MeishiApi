@@ -35,6 +35,10 @@ jobs:
             sleep 10
           done
           docker push "$IMAGE:$TAG"
+      - name: Keep only the 5 newest local images
+        run: |
+          docker images "$IMAGE" --format '{{.ID}}' | awk '!seen[$0]++' | tail -n +6 | xargs -r docker rmi -f || true
+          docker image prune -f
       - name: Bump image tag in homelab-gitops
         run: |
           TAG=$(echo "$GITHUB_SHA" | cut -c1-7)
