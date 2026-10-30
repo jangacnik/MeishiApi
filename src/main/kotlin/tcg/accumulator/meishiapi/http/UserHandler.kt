@@ -139,7 +139,7 @@ class UserHandler(
     }
 
     fun list(ctx: RoutingContext) = respond(ctx) {
-        val users = repository.listAll()
+        val users = repository.listAll(pendingDeletionOnly = ctx.queryParam("pendingDeletion").firstOrNull() == "true")
         log.trace("listed {} users", users.size)
         JsonArrayResult(JsonArray(users.map(::toJson)))
     }
@@ -167,9 +167,9 @@ class UserHandler(
         val body = requiredJsonBody(ctx)
         val role = parseEnumOrNull<Role>(stringField(body, "role"))
             ?: raise(AppError.BadRequest("role must be USER or ADMIN"))
-        if (!repository.updateRole(id, role)) {
-            raise(AppError.NotFound("user not found"))
-        }
+        val actorId = callerId(ctx)
+        if (id == actorId && role != Role.ADMIN) raise(AppError.Conflict("cannot demote yourself"))
+        repository.updateRole(actorId, id, role).bind()
         NoContentResult()
     }
 
@@ -178,9 +178,9 @@ class UserHandler(
         val body = requiredJsonBody(ctx)
         val status = parseEnumOrNull<Status>(stringField(body, "status"))
             ?: raise(AppError.BadRequest("status must be ACTIVE or FROZEN"))
-        if (!repository.updateStatus(id, status)) {
-            raise(AppError.NotFound("user not found"))
-        }
+        val actorId = callerId(ctx)
+        if (id == actorId && status == Status.FROZEN) raise(AppError.Conflict("cannot freeze yourself"))
+        repository.updateStatus(actorId, id, status).bind()
         NoContentResult()
     }
 
@@ -212,19 +212,16 @@ class UserHandler(
         if (!repository.updatePassword(id, hasher.hash(newPassword))) {
             raise(AppError.NotFound("user not found"))
         }
+        repository.recordAdminAction(callerId(ctx), "SET_PASSWORD", id)
         log.info("admin set password for user {}", id)
         NoContentResult()
     }
 
     fun delete(ctx: RoutingContext) = respond(ctx) {
         val id = pathId(ctx)
-        val target = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
-        if (target.role == Role.ADMIN && repository.countAdmins() <= 1) {
-            raise(AppError.Conflict("cannot delete the last admin"))
-        }
-        if (!repository.delete(id)) {
-            raise(AppError.NotFound("user not found"))
-        }
+        val actorId = callerId(ctx)
+        if (id == actorId) raise(AppError.Conflict("cannot delete yourself"))
+        repository.delete(actorId, id).bind()
         NoContentResult()
     }
 

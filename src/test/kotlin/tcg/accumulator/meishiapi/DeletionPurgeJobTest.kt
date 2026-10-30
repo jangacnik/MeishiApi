@@ -1,0 +1,33 @@
+package tcg.accumulator.meishiapi
+
+import io.vertx.core.Vertx
+import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Test
+import tcg.accumulator.meishiapi.model.Role
+import tcg.accumulator.meishiapi.repository.FakeUserRepository
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+
+class DeletionPurgeJobTest {
+
+    @Test
+    fun `runOnce purges requests past retention and keeps recent ones and admins`() = runBlocking {
+        val repo = FakeUserRepository()
+        val (expired, _) = repo.create(Role.USER)
+        val (recent, _) = repo.create(Role.USER)
+        val (admin, _) = repo.create(Role.ADMIN)
+        listOf(expired, recent, admin).forEach { repo.requestDeletion(it) }
+        repo.backdateDeletionRequest(expired, DELETION_RETENTION_DAYS + 1L)
+        repo.backdateDeletionRequest(admin, DELETION_RETENTION_DAYS + 1L)
+        repo.backdateDeletionRequest(recent, DELETION_RETENTION_DAYS - 1L)
+
+        val purged = DeletionPurgeJob(Vertx.vertx(), repo).runOnce()
+
+        assertEquals(1, purged)
+        assertNull(repo.findById(expired))
+        assertNotNull(repo.findById(recent))
+        assertNotNull(repo.findById(admin))
+        assertEquals(listOf("PURGE_USER"), repo.audit.map { it.action })
+    }
+}

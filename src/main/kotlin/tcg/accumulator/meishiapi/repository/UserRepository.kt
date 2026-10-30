@@ -29,10 +29,15 @@ interface UserRepository {
     suspend fun findById(id: UUID): User?
     suspend fun findAuthRecordById(id: UUID): AuthRecord?
     suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit>
-    suspend fun listAll(): List<User>
+    suspend fun listAll(pendingDeletionOnly: Boolean = false): List<User>
     suspend fun listActivatedNicknames(): List<NicknameEntry>
-    suspend fun updateRole(id: UUID, role: Role): Boolean
-    suspend fun updateStatus(id: UUID, status: Status): Boolean
+
+    /**
+     * Admin mutation: fails with NotFound for a missing user and Conflict if it would leave no
+     * active ADMIN. Writes an audit row in the same transaction.
+     */
+    suspend fun updateRole(actorId: UUID, id: UUID, role: Role): Either<AppError, Unit>
+    suspend fun updateStatus(actorId: UUID, id: UUID, status: Status): Either<AppError, Unit>
 
     /** Partially updates profile columns. Keys are column names; only the given keys are touched. */
     suspend fun updateProfile(id: UUID, fields: Map<String, String?>): Boolean
@@ -50,7 +55,16 @@ interface UserRepository {
     /** Counts one failed attempt; returns true when this attempt started a lockout. */
     suspend fun registerFailedLoginAttempt(id: UUID): Boolean
     suspend fun resetFailedLoginAttempts(id: UUID)
-    suspend fun delete(id: UUID): Boolean
+    suspend fun delete(actorId: UUID, id: UUID): Either<AppError, Unit>
+
+    /** Appends an audit row for an admin action that is not covered by a transactional mutation above. */
+    suspend fun recordAdminAction(actorId: UUID, action: String, targetId: UUID)
+
+    /**
+     * Hard-deletes non-ADMIN users whose deletion request is older than [retentionDays],
+     * writing one audit row per purged user. Returns the number purged.
+     */
+    suspend fun purgeExpiredDeletions(retentionDays: Int): Int
     suspend fun countAdmins(): Int
     suspend fun seedAdmin(nickname: String, passwordHash: String)
 

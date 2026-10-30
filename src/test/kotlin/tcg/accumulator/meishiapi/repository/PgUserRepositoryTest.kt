@@ -3,6 +3,7 @@ package tcg.accumulator.meishiapi.repository
 import arrow.core.Either
 import arrow.core.getOrElse
 import io.vertx.core.Vertx
+import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.sqlclient.Pool
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -204,13 +205,14 @@ class PgUserRepositoryTest {
     @Test
     fun `login reset and status update clear the counter and the lock`() = runBlocking {
         val id = activatedUser("alice")
+        val actor = activatedUser("root", Role.ADMIN)
         repeat(5) { repo.registerFailedLoginAttempt(id) }
 
         repo.resetFailedLoginAttempts(id)
         assertEquals(false, repo.findAuthRecordById(id)?.isLocked)
 
         repeat(5) { repo.registerFailedLoginAttempt(id) }
-        repo.updateStatus(id, Status.ACTIVE)
+        repo.updateStatus(actor, id, Status.ACTIVE).getOrThrow()
         assertEquals(false, repo.findAuthRecordById(id)?.isLocked)
         assertEquals(false, repo.registerFailedLoginAttempt(id))
     }
@@ -229,15 +231,91 @@ class PgUserRepositoryTest {
 
     @Test
     fun `role updates, nickname listing and delete behave`() = runBlocking {
+        val actor = activatedUser("root", Role.ADMIN)
         val alice = activatedUser("alice")
         repo.create(Role.USER)
 
-        assertTrue(repo.updateRole(alice, Role.ADMIN))
-        assertEquals(listOf("alice"), repo.listActivatedNicknames().map { it.nickname })
-        assertEquals(2, repo.listAll().size)
+        repo.updateRole(actor, alice, Role.ADMIN).getOrThrow()
+        assertEquals(listOf("alice", "root"), repo.listActivatedNicknames().map { it.nickname }.sorted())
+        assertEquals(3, repo.listAll().size)
 
-        assertTrue(repo.delete(alice))
-        assertFalse(repo.delete(alice))
+        repo.delete(actor, alice).getOrThrow()
+        assertIs<AppError.NotFound>(repo.delete(actor, alice).leftOrNull())
         assertNull(repo.findById(alice))
+    }
+
+    @Test
+    fun `last active admin cannot be demoted, frozen or deleted`() = runBlocking {
+        val root = activatedUser("root", Role.ADMIN)
+        val actor = UUID.randomUUID()
+
+        assertIs<AppError.Conflict>(repo.updateRole(actor, root, Role.USER).leftOrNull())
+        assertIs<AppError.Conflict>(repo.updateStatus(actor, root, Status.FROZEN).leftOrNull())
+        assertIs<AppError.Conflict>(repo.delete(actor, root).leftOrNull())
+
+        val second = activatedUser("second", Role.ADMIN)
+        repo.updateRole(actor, root, Role.USER).getOrThrow()
+        assertIs<AppError.Conflict>(repo.delete(actor, second).leftOrNull())
+        assertEquals(1, repo.countAdmins())
+    }
+
+    @Test
+    fun `concurrent demotions cannot remove every admin`() = runBlocking {
+        val a = activatedUser("a", Role.ADMIN)
+        val b = activatedUser("b", Role.ADMIN)
+
+        val results = listOf(
+            async { repo.updateRole(b, a, Role.USER) },
+            async { repo.updateRole(a, b, Role.USER) },
+        ).awaitAll()
+
+        assertEquals(1, results.count { it.isRight() })
+        assertEquals(1, repo.countAdmins())
+    }
+
+    @Test
+    fun `successful mutations write audit rows and rejected ones do not`() = runBlocking {
+        val root = activatedUser("root", Role.ADMIN)
+        val alice = activatedUser("alice")
+
+        repo.updateRole(root, alice, Role.ADMIN).getOrThrow()
+        repo.updateRole(root, alice, Role.USER).getOrThrow()
+        assertIs<AppError.Conflict>(repo.updateRole(alice, root, Role.USER).leftOrNull())
+        repo.recordAdminAction(root, "SET_PASSWORD", alice)
+
+        val rows = pool.query("SELECT action FROM admin_audit_log ORDER BY created_at").execute().coAwait()
+        assertEquals(listOf("CHANGE_ROLE", "CHANGE_ROLE", "SET_PASSWORD"), rows.map { it.getString("action") })
+    }
+
+    @Test
+    fun `purge deletes expired non-admin requests only and audits each`() = runBlocking {
+        val expired = activatedUser("expired")
+        val recent = activatedUser("recent")
+        val admin = activatedUser("root", Role.ADMIN)
+        repo.requestDeletion(expired)
+        repo.requestDeletion(recent)
+        repo.requestDeletion(admin)
+        pool.query("UPDATE users SET deletion_requested_at = now() - interval '15 days' WHERE id IN ('$expired', '$admin')")
+            .execute().coAwait()
+
+        assertEquals(1, repo.purgeExpiredDeletions(14))
+
+        assertNull(repo.findById(expired))
+        assertNotNull(repo.findById(recent))
+        assertNotNull(repo.findById(admin))
+        val rows = pool.query("SELECT action, actor_id, target_id FROM admin_audit_log").execute().coAwait()
+        assertEquals(1, rows.size())
+        assertEquals("PURGE_USER", rows.first().getString("action"))
+        assertNull(rows.first().getUUID("actor_id"))
+        assertEquals(expired, rows.first().getUUID("target_id"))
+    }
+
+    @Test
+    fun `listAll can filter pending deletion requests`() = runBlocking {
+        val pending = activatedUser("pending")
+        activatedUser("other")
+        repo.requestDeletion(pending)
+
+        assertEquals(listOf(pending), repo.listAll(pendingDeletionOnly = true).map { it.id })
     }
 }
