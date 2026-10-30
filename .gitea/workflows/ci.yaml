@@ -27,27 +27,7 @@ jobs:
           name: coverage-${{ github.run_number }}
           path: build/reports/kover
           if-no-files-found: ignore
-          retention-days: 14
-      - name: Keep only the 3 newest coverage reports
-        if: always()
-        env:
-          CI_TOKEN: ${{ secrets.CI_TOKEN }}
-          API: https://gitea.gacnikhome.duckdns.org/api/v1/repos/${{ github.repository }}/actions/artifacts
-        run: |
-          python3 - <<'EOF' || true
-          import json, os, urllib.request
-          def call(url, method="GET"):
-              req = urllib.request.Request(url, method=method, headers={"Authorization": "token " + os.environ["CI_TOKEN"]})
-              with urllib.request.urlopen(req) as r:
-                  return json.load(r) if method == "GET" else None
-          api = os.environ["API"]
-          reports = [a for a in call(api + "?limit=100")["artifacts"] if a["name"].startswith("coverage-")]
-          newest_first = sorted({a["name"]: a["id"] for a in sorted(reports, key=lambda a: a["id"])}.items(), key=lambda kv: kv[1], reverse=True)
-          stale = {name for name, _ in newest_first[3:]}
-          for a in reports:
-              if a["name"] in stale:
-                  call(api + "/" + str(a["id"]), "DELETE")
-          EOF
+          retention-days: 30
       - name: Enforce 80% coverage on changed lines
         run: |
           git fetch -q origin master
