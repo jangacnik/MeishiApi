@@ -369,8 +369,9 @@ class AuthHandlerTest {
         repeat(3) { assertEquals(401, login(client, port, "nobody", "hunter2-correct").statusCode()) }
         val limited = login(client, port, "nobody", "hunter2-correct")
 
+        val retryAfter: String? = limited.getHeader("Retry-After")
         assertEquals(429, limited.statusCode())
-        assertNotNull(limited.getHeader("Retry-After"))
+        assertNotNull(retryAfter)
     }
 
     @Test
