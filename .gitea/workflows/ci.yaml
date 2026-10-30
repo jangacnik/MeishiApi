@@ -10,6 +10,8 @@ jobs:
     runs-on: host
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Test
         run: |
           NET="ci-$GITHUB_RUN_ID-$GITHUB_RUN_NUMBER"
@@ -17,13 +19,13 @@ jobs:
           trap 'docker rm -f "$NET-db" >/dev/null 2>&1; docker network rm "$NET" >/dev/null 2>&1' EXIT
           docker run -d --name "$NET-db" --network "$NET" -e POSTGRES_DB=meishi_test -e POSTGRES_USER=meishi -e POSTGRES_PASSWORD=meishi --health-cmd "pg_isready -U meishi" --health-interval 2s --health-retries 30 postgres:16
           until [ "$(docker inspect -f '{{.State.Health.Status}}' "$NET-db")" = healthy ]; do sleep 2; done
-          docker run --rm --network "$NET" -e CI=true -e TEST_DB_URL="jdbc:postgresql://$NET-db:5432/meishi_test" --user "$(id -u):$(id -g)" -e HOME=/tmp -e GRADLE_USER_HOME=/tmp/gradle -v "$PWD":/w -w /w gradle:9.3.0-jdk21 gradle --no-daemon test jacocoTestCoverageVerification
+          docker run --rm --network "$NET" -e CI=true -e TEST_DB_URL="jdbc:postgresql://$NET-db:5432/meishi_test" --user "$(id -u):$(id -g)" -e HOME=/tmp -e GRADLE_USER_HOME=/tmp/gradle -v "$PWD":/w -w /w gradle:9.3.0-jdk21 gradle --no-daemon test koverXmlReport koverHtmlReport koverVerify
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: coverage-${{ github.run_number }}
-          path: build/reports/jacoco
+          path: build/reports/kover
           if-no-files-found: ignore
           retention-days: 14
       - name: Keep only the 3 newest coverage reports
@@ -46,6 +48,11 @@ jobs:
               if a["name"] in stale:
                   call(api + "/" + str(a["id"]), "DELETE")
           EOF
+      - name: Enforce 80% coverage on changed lines
+        run: |
+          git fetch -q origin master
+          git diff origin/master...HEAD > pr.diff
+          docker run --rm -v "$PWD":/w -w /w python:3.13-alpine sh -c "pip install -q diff-cover && diff-cover build/reports/kover/report.xml --diff-file pr.diff --fail-under=80"
   build:
     needs: test
     if: github.ref == 'refs/heads/master'

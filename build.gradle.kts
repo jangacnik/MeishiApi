@@ -1,7 +1,7 @@
 plugins {
     kotlin("jvm") version "2.4.20"
     application
-    jacoco
+    id("org.jetbrains.kotlinx.kover") version "0.9.1"
 }
 
 group = "tcg.accumulator"
@@ -54,23 +54,12 @@ application {
 
 tasks.test {
     useJUnitPlatform()
-    finalizedBy(tasks.jacocoTestReport)
 }
 
-tasks.jacocoTestReport {
-    dependsOn(tasks.test)
+kover {
     reports {
-        xml.required = true
-        html.required = true
+        verify {
+            rule { minBound(50) }
+        }
     }
-}
-
-tasks.jacocoTestCoverageVerification {
-    violationRules {
-        rule { limit { minimum = "0.50".toBigDecimal() } }
-    }
-}
-
-tasks.check {
-    dependsOn(tasks.jacocoTestCoverageVerification)
 }
