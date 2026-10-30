@@ -1,5 +1,7 @@
 package tcg.accumulator.meishiapi
 
+import tcg.accumulator.meishiapi.http.DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE
+
 data class AppConfig(
     val httpPort: Int,
     val dbHost: String,
@@ -15,6 +17,8 @@ data class AppConfig(
     val jwtSecret: String,
     val adminNickname: String,
     val adminPassword: String,
+    val loginAttemptsPerMinute: Int = DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE,
+    val clientIpHeader: String? = null,
 ) {
     val jdbcUrl: String get() = "jdbc:postgresql://$dbHost:$dbPort/$dbName" + (dbSslMode?.let { "?sslmode=$it" } ?: "")
 
@@ -64,6 +68,8 @@ data class AppConfig(
                 jwtSecret = jwtSecret,
                 adminNickname = env("ADMIN_NICKNAME", "admin"),
                 adminPassword = adminPassword,
+                loginAttemptsPerMinute = env("LOGIN_ATTEMPTS_PER_MINUTE", DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE.toString()).toInt(),
+                clientIpHeader = optional("CLIENT_IP_HEADER"),
             )
         }
     }

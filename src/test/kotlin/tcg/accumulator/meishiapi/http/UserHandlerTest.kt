@@ -383,6 +383,22 @@ class UserHandlerTest {
     }
 
     @Test
+    fun `changeMyPassword counts wrong old passwords and stops accepting guesses once locked`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val (id, _) = h.repo.create(Role.USER)
+        h.repo.activate(id, "bob", h.hasher.hash("correct-password"))
+        val token = h.jwt.generateToken(id, "bob", Role.USER)
+
+        suspend fun changePassword(oldPassword: String) = h.client.patch(h.port, "localhost", "/api/users/me/password")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("oldPassword", oldPassword).put("newPassword", "new-password")).coAwait()
+
+        repeat(5) { assertEquals(401, changePassword("wrong-password").statusCode()) }
+
+        assertEquals(401, changePassword("correct-password").statusCode())
+    }
+
+    @Test
     fun `changeMyPassword succeeds with the correct old password and the new one verifies`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx)
         val (id, _) = h.repo.create(Role.USER)

@@ -15,7 +15,10 @@ data class AuthRecord(
     val role: Role,
     val status: Status,
     val activatedAt: OffsetDateTime?,
-)
+    val lockedUntil: OffsetDateTime? = null,
+) {
+    val isLocked: Boolean get() = lockedUntil?.isAfter(OffsetDateTime.now()) == true
+}
 
 data class NicknameEntry(val id: UUID, val nickname: String)
 
@@ -44,7 +47,8 @@ interface UserRepository {
     suspend fun adminUpdateProfile(id: UUID, nickname: String?, fields: Map<String, String?>): Either<AppError, Unit>
 
     /** Records a failed login attempt, freezing the account once it hits the threshold. */
-    suspend fun registerFailedLoginAttempt(id: UUID)
+    /** Counts one failed attempt; returns true when this attempt started a lockout. */
+    suspend fun registerFailedLoginAttempt(id: UUID): Boolean
     suspend fun resetFailedLoginAttempts(id: UUID)
     suspend fun delete(id: UUID): Boolean
     suspend fun countAdmins(): Int

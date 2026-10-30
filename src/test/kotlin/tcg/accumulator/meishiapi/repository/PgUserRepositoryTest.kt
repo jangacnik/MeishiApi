@@ -15,6 +15,8 @@ import org.junit.jupiter.api.TestInstance
 import tcg.accumulator.meishiapi.http.AppError
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
+import java.time.Duration
+import java.time.OffsetDateTime
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -170,29 +172,47 @@ class PgUserRepositoryTest {
     }
 
     @Test
-    fun `third failed login freezes the account and status update resets the counter`() = runBlocking {
+    fun `fifth failed login locks the account for 15 minutes without freezing it`() = runBlocking {
         val id = activatedUser("alice")
 
-        repeat(2) { repo.registerFailedLoginAttempt(id) }
-        assertEquals(Status.ACTIVE, repo.findAuthRecordById(id)?.status)
+        repeat(4) { assertEquals(false, repo.registerFailedLoginAttempt(id)) }
+        assertEquals(false, repo.findAuthRecordById(id)?.isLocked)
 
-        repo.registerFailedLoginAttempt(id)
-        assertEquals(Status.FROZEN, repo.findAuthRecordById(id)?.status)
-
-        repo.updateStatus(id, Status.ACTIVE)
-        repo.registerFailedLoginAttempt(id)
-        assertEquals(Status.ACTIVE, repo.findAuthRecordById(id)?.status)
+        assertEquals(true, repo.registerFailedLoginAttempt(id))
+        val record = assertNotNull(repo.findAuthRecordById(id))
+        assertEquals(true, record.isLocked)
+        assertEquals(Status.ACTIVE, record.status)
+        val minutes = Duration.between(OffsetDateTime.now(), assertNotNull(record.lockedUntil)).toMinutes()
+        assertEquals(true, minutes in 13..15)
     }
 
     @Test
-    fun `successful login reset keeps the account below the freeze threshold`() = runBlocking {
+    fun `each further lock doubles up to one hour`() = runBlocking {
         val id = activatedUser("alice")
+        val lockMinutes = mutableListOf<Long>()
 
-        repeat(2) { repo.registerFailedLoginAttempt(id) }
+        repeat(15) {
+            if (repo.registerFailedLoginAttempt(id)) {
+                val lockedUntil = assertNotNull(repo.findAuthRecordById(id)?.lockedUntil)
+                lockMinutes += Duration.between(OffsetDateTime.now(), lockedUntil).toMinutes() + 1
+            }
+        }
+
+        assertEquals(listOf(15L, 30L, 60L), lockMinutes)
+    }
+
+    @Test
+    fun `login reset and status update clear the counter and the lock`() = runBlocking {
+        val id = activatedUser("alice")
+        repeat(5) { repo.registerFailedLoginAttempt(id) }
+
         repo.resetFailedLoginAttempts(id)
-        repeat(2) { repo.registerFailedLoginAttempt(id) }
+        assertEquals(false, repo.findAuthRecordById(id)?.isLocked)
 
-        assertEquals(Status.ACTIVE, repo.findAuthRecordById(id)?.status)
+        repeat(5) { repo.registerFailedLoginAttempt(id) }
+        repo.updateStatus(id, Status.ACTIVE)
+        assertEquals(false, repo.findAuthRecordById(id)?.isLocked)
+        assertEquals(false, repo.registerFailedLoginAttempt(id))
     }
 
     @Test

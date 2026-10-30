@@ -12,10 +12,12 @@ import tcg.accumulator.meishiapi.http.AppError
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User
+import tcg.accumulator.meishiapi.security.LOCK_AFTER_FAILED_ATTEMPTS
+import tcg.accumulator.meishiapi.security.LOCK_MINUTES_SQL
 import java.util.UUID
 
 private const val POSTGRES_UNIQUE_VIOLATION = "23505"
-private const val FAILED_LOGIN_FREEZE_THRESHOLD = 3
+private const val AUTH_COLUMNS = "id, nickname, password_hash, role, status, activated_at, locked_until"
 private const val USER_COLUMNS = "id, nickname, role, status, activation_key, activated_at, created_at, " +
     "email, phone, first_name, last_name, address_line1, address_line2, postal_code, city, country, " +
     "avatar_key, discord_name, deletion_requested_at"
@@ -36,7 +38,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
 
     override suspend fun findByActivationKey(activationKey: UUID): AuthRecord? {
         val rows = pool.preparedQuery(
-            "SELECT id, nickname, password_hash, role, status, activated_at FROM users WHERE activation_key = $1",
+            "SELECT $AUTH_COLUMNS FROM users WHERE activation_key = $1",
         ).execute(Tuple.of(activationKey)).coAwait()
         return rows.firstOrNull()?.let(::toAuthRecord)
     }
@@ -44,7 +46,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     override suspend fun findByNickname(nickname: String): AuthRecord? {
         log.trace("lookup by nickname='{}'", nickname)
         val rows = pool.preparedQuery(
-            "SELECT id, nickname, password_hash, role, status, activated_at FROM users WHERE nickname = $1",
+            "SELECT $AUTH_COLUMNS FROM users WHERE nickname = $1",
         ).execute(Tuple.of(nickname)).coAwait()
         return rows.firstOrNull()?.let(::toAuthRecord)
     }
@@ -81,7 +83,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     override suspend fun findAuthRecordById(id: UUID): AuthRecord? {
         log.trace("lookup auth record by id={}", id)
         val rows = pool.preparedQuery(
-            "SELECT id, nickname, password_hash, role, status, activated_at FROM users WHERE id = $1",
+            "SELECT $AUTH_COLUMNS FROM users WHERE id = $1",
         ).execute(Tuple.of(id)).coAwait()
         return rows.firstOrNull()?.let(::toAuthRecord)
     }
@@ -176,29 +178,34 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     override suspend fun updateStatus(id: UUID, status: Status): Boolean {
         log.trace("update status of {} to {}", id, status)
         val result = pool.preparedQuery(
-            "UPDATE users SET status = $1, failed_login_attempts = 0 WHERE id = $2",
+            "UPDATE users SET status = $1, failed_login_attempts = 0, locked_until = NULL WHERE id = $2",
         ).execute(Tuple.of(status.name, id)).coAwait()
         val updated = result.rowCount() > 0
         if (updated) log.info("updated user {} status to {}", id, status) else log.warn("update status: user {} not found", id)
         return updated
     }
 
-    override suspend fun registerFailedLoginAttempt(id: UUID) {
+    override suspend fun registerFailedLoginAttempt(id: UUID): Boolean {
         log.trace("register failed login attempt for {}", id)
-        pool.preparedQuery(
+        val rows = pool.preparedQuery(
             """
             UPDATE users
             SET failed_login_attempts = failed_login_attempts + 1,
-                status = CASE WHEN failed_login_attempts + 1 >= $2 THEN 'FROZEN' ELSE status END
+                locked_until = CASE
+                    WHEN (failed_login_attempts + 1) % $LOCK_AFTER_FAILED_ATTEMPTS = 0
+                    THEN now() + make_interval(mins => $LOCK_MINUTES_SQL)
+                    ELSE locked_until END
             WHERE id = $1
+            RETURNING failed_login_attempts % $LOCK_AFTER_FAILED_ATTEMPTS = 0 AS locked
             """.trimIndent(),
-        ).execute(Tuple.of(id, FAILED_LOGIN_FREEZE_THRESHOLD)).coAwait()
+        ).execute(Tuple.of(id)).coAwait()
+        return rows.firstOrNull()?.getBoolean("locked") ?: false
     }
 
     override suspend fun resetFailedLoginAttempts(id: UUID) {
         log.trace("reset failed login attempts for {}", id)
         pool.preparedQuery(
-            "UPDATE users SET failed_login_attempts = 0 WHERE id = $1",
+            "UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1",
         ).execute(Tuple.of(id)).coAwait()
     }
 
@@ -248,6 +255,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         role = Role.valueOf(row.getString("role")),
         status = Status.valueOf(row.getString("status")),
         activatedAt = row.getOffsetDateTime("activated_at"),
+        lockedUntil = row.getOffsetDateTime("locked_until"),
     )
 
     private fun toUser(row: Row) = User(

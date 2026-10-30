@@ -107,11 +107,17 @@ class UserHandler(
             "newPassword",
         )
         val record = repository.findAuthRecordById(id) ?: raise(AppError.NotFound("user not found"))
+        if (record.isLocked) {
+            log.warn("password change rejected: {} is locked after failed attempts", id)
+            raise(AppError.Unauthorized("incorrect password"))
+        }
         if (!hasher.verify(record.passwordHash, oldPassword)) {
+            repository.registerFailedLoginAttempt(id)
             log.warn("password change failed: incorrect old password for {}", id)
             raise(AppError.Unauthorized("incorrect password"))
         }
         repository.updatePassword(id, hasher.hash(newPassword))
+        repository.resetFailedLoginAttempts(id)
         log.info("user {} changed their password", id)
         NoContentResult()
     }

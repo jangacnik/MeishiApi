@@ -55,6 +55,7 @@ private fun writeError(ctx: RoutingContext, error: AppError) {
     } else {
         log.debug("request rejected: {} {} -> {} ({})", ctx.request().method(), ctx.request().path(), error.status, error.message)
     }
+    if (error is AppError.TooManyRequests) ctx.response().putHeader("Retry-After", error.retryAfterSeconds.toString())
     ctx.response().setStatusCode(error.status).putHeader("content-type", "application/json")
         .end(JsonObject().put("error", error.message).encode())
 }

@@ -11,6 +11,7 @@ import io.vertx.sqlclient.Pool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
+import tcg.accumulator.meishiapi.http.LoginRateLimiter
 import tcg.accumulator.meishiapi.http.buildRouter
 import tcg.accumulator.meishiapi.repository.PgUserRepository
 import tcg.accumulator.meishiapi.repository.UserRepository
@@ -34,7 +35,10 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
 
             seedAdminIfMissing(repository, hasher, config)
 
-            val router = buildRouter(vertx, repository, hasher, jwt) { pool.query("SELECT 1").execute().coAwait() }
+            val router = buildRouter(
+                vertx, repository, hasher, jwt,
+                LoginRateLimiter(config.loginAttemptsPerMinute), config.clientIpHeader,
+            ) { pool.query("SELECT 1").execute().coAwait() }
             log.trace("router built")
 
             vertx.createHttpServer(HttpServerOptions().setTracingPolicy(TracingPolicy.ALWAYS))

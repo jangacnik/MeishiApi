@@ -24,11 +24,14 @@ import kotlin.test.assertNotNull
 @ExtendWith(VertxExtension::class)
 class AuthHandlerTest {
 
-    private suspend fun harness(vertx: Vertx): Triple<FakeUserRepository, WebClient, Int> {
+    private suspend fun harness(
+        vertx: Vertx,
+        limiter: LoginRateLimiter = LoginRateLimiter(1_000),
+    ): Triple<FakeUserRepository, WebClient, Int> {
         val repo = FakeUserRepository()
         val hasher = PasswordHasher(vertx)
         val jwt = JwtService(vertx, "test-secret")
-        val router = buildRouter(vertx, repo, hasher, jwt)
+        val router = buildRouter(vertx, repo, hasher, jwt, limiter)
         val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
         return Triple(repo, WebClient.create(vertx), server.actualPort())
     }
@@ -299,25 +302,75 @@ class AuthHandlerTest {
         assertEquals(401, response.statusCode())
     }
 
-    @Test
-    fun `account freezes after 3 failed login attempts`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
-        val (repo, client, port) = harness(vertx)
-        val (_, activationKey) = repo.create(Role.USER)
+    private suspend fun registerUser(repo: FakeUserRepository, client: WebClient, port: Int, nickname: String): UUID {
+        val (id, activationKey) = repo.create(Role.USER)
         client.post(port, "localhost", "/api/auth/register").sendJsonObject(
-            JsonObject().put("activationKey", activationKey.toString()).put("nickname", "alice").put("password", "hunter2-correct"),
+            JsonObject().put("activationKey", activationKey.toString()).put("nickname", nickname).put("password", "hunter2-correct"),
         ).coAwait()
+        return id
+    }
 
-        repeat(3) {
-            client.post(port, "localhost", "/api/auth/login")
-                .sendJsonObject(JsonObject().put("nickname", "alice").put("password", "wrong")).coAwait()
-        }
+    private suspend fun login(client: WebClient, port: Int, nickname: String, password: String) =
+        client.post(port, "localhost", "/api/auth/login")
+            .sendJsonObject(JsonObject().put("nickname", nickname).put("password", password)).coAwait()
 
-        val response = client.post(port, "localhost", "/api/auth/login")
-            .sendJsonObject(JsonObject().put("nickname", "alice").put("password", "hunter2-correct")).coAwait()
+    @Test
+    fun `account locks for 15 minutes after 5 failed attempts without being frozen`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (repo, client, port) = harness(vertx)
+        val id = registerUser(repo, client, port, "alice")
 
-        assertEquals(403, response.statusCode())
-        val frozen = repo.findByNickname("alice")
-        assertEquals(Status.FROZEN, frozen?.status)
+        repeat(4) { login(client, port, "alice", "wrong") }
+        assertEquals(200, login(client, port, "alice", "hunter2-correct").statusCode())
+        repeat(5) { login(client, port, "alice", "wrong") }
+
+        assertEquals(401, login(client, port, "alice", "hunter2-correct").statusCode())
+        assertEquals(Status.ACTIVE, repo.findByNickname("alice")?.status)
+        assertEquals(true, repo.lockedMinutesRemaining(id)!! in 13..15)
+    }
+
+    @Test
+    fun `attempts while locked do not extend the lock and expiry restores login`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (repo, client, port) = harness(vertx)
+        val id = registerUser(repo, client, port, "alice")
+        repeat(5) { login(client, port, "alice", "wrong") }
+
+        repeat(3) { login(client, port, "alice", "wrong") }
+        assertEquals(5, repo.failedLoginAttempts(id))
+
+        repo.expireLock(id)
+        assertEquals(200, login(client, port, "alice", "hunter2-correct").statusCode())
+        assertEquals(0, repo.failedLoginAttempts(id))
+    }
+
+    @Test
+    fun `unknown, wrong password, frozen and locked logins are indistinguishable`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (repo, client, port) = harness(vertx)
+        registerUser(repo, client, port, "alice")
+        val bobId = registerUser(repo, client, port, "bob")
+        registerUser(repo, client, port, "carol")
+        repo.updateStatus(bobId, Status.FROZEN)
+        repeat(5) { login(client, port, "carol", "wrong") }
+
+        val responses = listOf(
+            login(client, port, "nobody", "hunter2-correct"),
+            login(client, port, "alice", "wrong"),
+            login(client, port, "bob", "hunter2-correct"),
+            login(client, port, "carol", "hunter2-correct"),
+        )
+
+        assertEquals(setOf(401), responses.map { it.statusCode() }.toSet())
+        assertEquals(1, responses.map { it.bodyAsString() }.toSet().size)
+    }
+
+    @Test
+    fun `login is rate limited per client with a Retry-After header`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (_, client, port) = harness(vertx, LoginRateLimiter(3))
+
+        repeat(3) { assertEquals(401, login(client, port, "nobody", "hunter2-correct").statusCode()) }
+        val limited = login(client, port, "nobody", "hunter2-correct")
+
+        assertEquals(429, limited.statusCode())
+        assertNotNull(limited.getHeader("Retry-After"))
     }
 
     @Test

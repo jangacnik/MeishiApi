@@ -20,6 +20,7 @@ import java.util.UUID
 
 private const val REQUEST_ID_HEADER = "X-Request-Id"
 private val REQUEST_ID_PATTERN = Regex("^[A-Za-z0-9-]{1,64}$")
+const val DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE = 10
 private const val MAX_BODY_BYTES = 16L * 1024
 private const val READINESS_TIMEOUT_MILLIS = 2_000L
 
@@ -30,6 +31,8 @@ fun buildRouter(
     repository: UserRepository,
     hasher: PasswordHasher,
     jwt: JwtService,
+    loginRateLimiter: LoginRateLimiter = LoginRateLimiter(DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE),
+    clientIpHeader: String? = null,
     readinessCheck: suspend () -> Unit = {},
 ): Router {
     val router = Router.router(vertx)
@@ -42,6 +45,7 @@ fun buildRouter(
 
     val auth = AuthHandler(repository, hasher, jwt)
     router.post("/api/auth/register").handler(auth::register)
+    router.post("/api/auth/login").handler { ctx -> limitLoginRate(ctx, loginRateLimiter, clientIpHeader) }
     router.post("/api/auth/login").handler(auth::login)
 
     val users = UserHandler(repository, hasher, jwt)
@@ -72,6 +76,23 @@ fun buildRouter(
     router.route().handler { it.fail(404) }
 
     return router
+}
+
+/** The proxy-set header is only trusted when configured; its last entry is the one our own proxy appended. */
+private fun clientIp(ctx: RoutingContext, header: String?): String =
+    header?.let { ctx.request().getHeader(it) }?.substringAfterLast(',')?.trim()?.takeIf { it.isNotEmpty() }
+        ?: ctx.request().remoteAddress().host()
+
+private fun limitLoginRate(ctx: RoutingContext, limiter: LoginRateLimiter, clientIpHeader: String?) {
+    val retryAfterSeconds = limiter.tryAcquire(clientIp(ctx, clientIpHeader))
+    if (retryAfterSeconds == 0L) {
+        ctx.next()
+        return
+    }
+    log.warn("login rate limit exceeded for {}", clientIp(ctx, clientIpHeader))
+    ctx.response().setStatusCode(429).putHeader("Retry-After", retryAfterSeconds.toString())
+        .putHeader("content-type", "application/json")
+        .end(JsonObject().put("error", "too many login attempts").encode())
 }
 
 private fun logRequest(ctx: RoutingContext) {
@@ -128,6 +149,7 @@ private fun defaultMessageFor(status: Int): String = when (status) {
     403 -> "forbidden"
     404 -> "not found"
     409 -> "conflict"
+    429 -> "too many requests"
     413 -> "payload too large"
     else -> "internal error"
 }

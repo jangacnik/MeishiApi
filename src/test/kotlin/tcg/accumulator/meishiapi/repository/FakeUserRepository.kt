@@ -6,11 +6,11 @@ import tcg.accumulator.meishiapi.http.AppError
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User
+import tcg.accumulator.meishiapi.security.LOCK_AFTER_FAILED_ATTEMPTS
+import tcg.accumulator.meishiapi.security.lockMinutes
 import java.time.OffsetDateTime
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-
-private const val FAILED_LOGIN_FREEZE_THRESHOLD = 3
 
 /** In-memory [UserRepository] double for handler tests, no Postgres required. */
 class FakeUserRepository : UserRepository {
@@ -25,6 +25,7 @@ class FakeUserRepository : UserRepository {
         var activatedAt: OffsetDateTime?,
         val createdAt: OffsetDateTime,
         var failedLoginAttempts: Int = 0,
+        var lockedUntil: OffsetDateTime? = null,
         var email: String? = null,
         var phone: String? = null,
         var firstName: String? = null,
@@ -86,6 +87,7 @@ class FakeUserRepository : UserRepository {
         val record = byId[id] ?: return false
         record.status = status
         record.failedLoginAttempts = 0
+        record.lockedUntil = null
         return true
     }
 
@@ -139,16 +141,28 @@ class FakeUserRepository : UserRepository {
         }
     }
 
-    override suspend fun registerFailedLoginAttempt(id: UUID) {
-        val record = byId[id] ?: return
+    override suspend fun registerFailedLoginAttempt(id: UUID): Boolean {
+        val record = byId[id] ?: return false
         record.failedLoginAttempts += 1
-        if (record.failedLoginAttempts >= FAILED_LOGIN_FREEZE_THRESHOLD) {
-            record.status = Status.FROZEN
-        }
+        if (record.failedLoginAttempts % LOCK_AFTER_FAILED_ATTEMPTS != 0) return false
+        record.lockedUntil = OffsetDateTime.now().plusMinutes(lockMinutes(record.failedLoginAttempts).toLong())
+        return true
     }
 
     override suspend fun resetFailedLoginAttempts(id: UUID) {
-        byId[id]?.failedLoginAttempts = 0
+        val record = byId[id] ?: return
+        record.failedLoginAttempts = 0
+        record.lockedUntil = null
+    }
+
+    fun failedLoginAttempts(id: UUID): Int = byId.getValue(id).failedLoginAttempts
+
+    fun lockedMinutesRemaining(id: UUID): Long? =
+        byId.getValue(id).lockedUntil?.let { java.time.Duration.between(OffsetDateTime.now(), it).toMinutes() }
+
+    /** Moves the lock into the past without resetting the counter, as if the lock period had elapsed. */
+    fun expireLock(id: UUID) {
+        byId.getValue(id).lockedUntil = OffsetDateTime.now().minusSeconds(1)
     }
 
     override suspend fun delete(id: UUID): Boolean = byId.remove(id) != null
@@ -175,7 +189,7 @@ class FakeUserRepository : UserRepository {
         return true
     }
 
-    private fun Record.toAuthRecord() = AuthRecord(id, nickname, passwordHash, role, status, activatedAt)
+    private fun Record.toAuthRecord() = AuthRecord(id, nickname, passwordHash, role, status, activatedAt, lockedUntil)
     private fun Record.toUser() = User(
         id, nickname, role, status, activationKey, activatedAt, createdAt,
         email, phone, firstName, lastName, addressLine1, addressLine2, postalCode, city, country,
