@@ -61,7 +61,7 @@ class PgUserRepositoryTest {
 
     @Test
     fun `all migrations apply to an empty database`() {
-        assertEquals(7, PostgresTestSupport.migrationCount())
+        assertEquals(8, PostgresTestSupport.migrationCount())
     }
 
     @Test
