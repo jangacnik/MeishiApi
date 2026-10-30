@@ -17,9 +17,9 @@ jobs:
           NET="ci-$GITHUB_RUN_ID-$GITHUB_RUN_NUMBER"
           docker network create "$NET"
           trap 'docker rm -f "$NET-db" >/dev/null 2>&1; docker network rm "$NET" >/dev/null 2>&1' EXIT
-          docker run -d --name "$NET-db" --network "$NET" -e POSTGRES_DB=meishi_test -e POSTGRES_USER=meishi -e POSTGRES_PASSWORD=meishi --health-cmd "pg_isready -U meishi" --health-interval 2s --health-retries 30 postgres:16
+          docker run -d --name "$NET-db" --network "$NET" -e POSTGRES_DB=meishi_test -e POSTGRES_USER=meishi -e POSTGRES_PASSWORD=meishi --health-cmd "pg_isready -U meishi" --health-interval 2s --health-retries 30 postgres:latest
           until [ "$(docker inspect -f '{{.State.Health.Status}}' "$NET-db")" = healthy ]; do sleep 2; done
-          docker run --rm --network "$NET" -e CI=true -e TEST_DB_URL="jdbc:postgresql://$NET-db:5432/meishi_test" --user "$(id -u):$(id -g)" -e HOME=/tmp -e GRADLE_USER_HOME=/tmp/gradle -v "$PWD":/w -w /w gradle:9.3.0-jdk21 gradle --no-daemon test koverXmlReport koverHtmlReport koverVerify
+          docker run --rm --network "$NET" -e CI=true -e TEST_DB_URL="jdbc:postgresql://$NET-db:5432/meishi_test" --user "$(id -u):$(id -g)" -e HOME=/tmp -e GRADLE_USER_HOME=/tmp/gradle -v "$PWD":/w -w /w gradle:jdk21 gradle --no-daemon test koverXmlReport koverHtmlReport koverVerify
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v3
@@ -32,7 +32,7 @@ jobs:
         run: |
           git fetch -q origin master
           git diff origin/master...HEAD > pr.diff
-          docker run --rm -v "$PWD":/w -w /w python:3.13-alpine sh -c "pip install -q diff-cover && diff-cover build/reports/kover/report.xml --diff-file pr.diff --fail-under=80"
+          docker run --rm -v "$PWD":/w -w /w python:alpine sh -c "pip install -q diff-cover && diff-cover build/reports/kover/report.xml --diff-file pr.diff --fail-under=80"
   build:
     needs: test
     if: github.ref == 'refs/heads/master'
@@ -45,7 +45,7 @@ jobs:
           TAG=$(echo "$GITHUB_SHA" | cut -c1-7)
           docker build -f Dockerfile -t "$IMAGE:$TAG" .
           for i in 1 2 3; do
-            docker run --rm --tmpfs /tmp:size=4g -v trivy-cache:/root/.cache -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$IMAGE:$TAG" && break
+            docker run --rm --tmpfs /tmp:size=4g -v trivy-cache:/root/.cache -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$IMAGE:$TAG" && break
             [ "$i" = 3 ] && exit 1
             sleep 10
           done
