@@ -22,10 +22,15 @@ class AuthHandler(
         val body = requiredJsonBody(ctx)
         val activationKey = parseUuidOrNull(stringField(body, "activationKey"))
             ?: raise(AppError.BadRequest("invalid activationKey"))
-        val nickname = stringField(body, "nickname")?.takeIf { it.isNotBlank() }
-            ?: raise(AppError.BadRequest("nickname required"))
-        val password = stringField(body, "password")?.takeIf { it.isNotBlank() }
-            ?: raise(AppError.BadRequest("password required"))
+        val nickname = validNickname(
+            stringField(body, "nickname")?.takeIf { it.isNotBlank() }
+                ?: raise(AppError.BadRequest("nickname required")),
+        )
+        val password = validPassword(
+            stringField(body, "password")?.takeIf { it.isNotBlank() }
+                ?: raise(AppError.BadRequest("password required")),
+            "password",
+        )
 
         val record = repository.findByActivationKey(activationKey)
         if (record == null || record.activatedAt != null) {

@@ -41,7 +41,7 @@ class AuthHandlerTest {
         val response = client.post(port, "localhost", "/api/auth/register")
             .sendJsonObject(
                 JsonObject().put("activationKey", activationKey.toString())
-                    .put("nickname", "alice").put("password", "hunter2"),
+                    .put("nickname", "alice").put("password", "hunter2-correct"),
             ).coAwait()
 
         assertEquals(200, response.statusCode())
@@ -55,7 +55,7 @@ class AuthHandlerTest {
         val response = client.post(port, "localhost", "/api/auth/register")
             .sendJsonObject(
                 JsonObject().put("activationKey", java.util.UUID.randomUUID().toString())
-                    .put("nickname", "alice").put("password", "hunter2"),
+                    .put("nickname", "alice").put("password", "hunter2-correct"),
             ).coAwait()
 
         assertEquals(409, response.statusCode())
@@ -69,7 +69,7 @@ class AuthHandlerTest {
         val response = client.post(port, "localhost", "/api/auth/register")
             .sendJsonObject(
                 JsonObject().put("activationKey", activationKey.toString())
-                    .put("nickname", "").put("password", "hunter2"),
+                    .put("nickname", "").put("password", "hunter2-correct"),
             ).coAwait()
 
         assertEquals(400, response.statusCode())
@@ -80,7 +80,7 @@ class AuthHandlerTest {
         val (repo, client, port) = harness(vertx)
         val (_, activationKey) = repo.create(Role.USER)
         val body = JsonObject().put("activationKey", activationKey.toString())
-            .put("nickname", "alice").put("password", "hunter2")
+            .put("nickname", "alice").put("password", "hunter2-correct")
 
         client.post(port, "localhost", "/api/auth/register").sendJsonObject(body).coAwait()
         val second = client.post(port, "localhost", "/api/auth/register").sendJsonObject(body).coAwait()
@@ -96,7 +96,7 @@ class AuthHandlerTest {
             fun attempt(nickname: String) = async {
                 client.post(port, "localhost", "/api/auth/register").sendJsonObject(
                     JsonObject().put("activationKey", activationKey.toString())
-                        .put("nickname", nickname).put("password", "hunter2"),
+                        .put("nickname", nickname).put("password", "hunter2-correct"),
                 ).coAwait().statusCode()
             }
 
@@ -112,7 +112,7 @@ class AuthHandlerTest {
             val (_, usedKey) = repo.create(Role.USER)
             fun register(key: UUID, nickname: String) = client.post(port, "localhost", "/api/auth/register")
                 .sendJsonObject(
-                    JsonObject().put("activationKey", key.toString()).put("nickname", nickname).put("password", "hunter2"),
+                    JsonObject().put("activationKey", key.toString()).put("nickname", nickname).put("password", "hunter2-correct"),
                 )
             register(usedKey, "alice").coAwait()
 
@@ -136,7 +136,7 @@ class AuthHandlerTest {
     @Test
     fun `non-string nickname is a 400 on login and register`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val (_, client, port) = harness(vertx)
-        val body = JsonObject().put("nickname", 123).put("password", "hunter2")
+        val body = JsonObject().put("nickname", 123).put("password", "hunter2-correct")
             .put("activationKey", UUID.randomUUID().toString())
 
         assertEquals(400, client.post(port, "localhost", "/api/auth/login").sendJsonObject(body).coAwait().statusCode())
@@ -210,14 +210,54 @@ class AuthHandlerTest {
         val (_, firstKey) = repo.create(Role.USER)
         val (_, secondKey) = repo.create(Role.USER)
         client.post(port, "localhost", "/api/auth/register").sendJsonObject(
-            JsonObject().put("activationKey", firstKey.toString()).put("nickname", "alice").put("password", "hunter2"),
+            JsonObject().put("activationKey", firstKey.toString()).put("nickname", "alice").put("password", "hunter2-correct"),
         ).coAwait()
 
         val response = client.post(port, "localhost", "/api/auth/register").sendJsonObject(
-            JsonObject().put("activationKey", secondKey.toString()).put("nickname", "alice").put("password", "hunter2"),
+            JsonObject().put("activationKey", secondKey.toString()).put("nickname", "alice").put("password", "hunter2-correct"),
         ).coAwait()
 
         assertEquals(409, response.statusCode())
+    }
+
+    @Test
+    fun `register with a nickname differing only in case is rejected`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (repo, client, port) = harness(vertx)
+        val (_, firstKey) = repo.create(Role.USER)
+        val (_, secondKey) = repo.create(Role.USER)
+        client.post(port, "localhost", "/api/auth/register").sendJsonObject(
+            JsonObject().put("activationKey", firstKey.toString()).put("nickname", "admin").put("password", "hunter2-correct"),
+        ).coAwait()
+
+        val response = client.post(port, "localhost", "/api/auth/register").sendJsonObject(
+            JsonObject().put("activationKey", secondKey.toString()).put("nickname", "Admin").put("password", "hunter2-correct"),
+        ).coAwait()
+
+        assertEquals(409, response.statusCode())
+    }
+
+    @Test
+    fun `register with a 65 character nickname is rejected`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (repo, client, port) = harness(vertx)
+        val (_, key) = repo.create(Role.USER)
+
+        val response = client.post(port, "localhost", "/api/auth/register").sendJsonObject(
+            JsonObject().put("activationKey", key.toString()).put("nickname", "a".repeat(65)).put("password", "hunter2-correct"),
+        ).coAwait()
+
+        assertEquals(400, response.statusCode())
+    }
+
+    @Test
+    fun `register with a 3 character password is rejected`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val (repo, client, port) = harness(vertx)
+        val (_, key) = repo.create(Role.USER)
+
+        val response = client.post(port, "localhost", "/api/auth/register").sendJsonObject(
+            JsonObject().put("activationKey", key.toString()).put("nickname", "alice").put("password", "abc"),
+        ).coAwait()
+
+        assertEquals(400, response.statusCode())
     }
 
     @Test
@@ -225,11 +265,11 @@ class AuthHandlerTest {
         val (repo, client, port) = harness(vertx)
         val (_, activationKey) = repo.create(Role.USER)
         client.post(port, "localhost", "/api/auth/register").sendJsonObject(
-            JsonObject().put("activationKey", activationKey.toString()).put("nickname", "alice").put("password", "hunter2"),
+            JsonObject().put("activationKey", activationKey.toString()).put("nickname", "alice").put("password", "hunter2-correct"),
         ).coAwait()
 
         val response = client.post(port, "localhost", "/api/auth/login")
-            .sendJsonObject(JsonObject().put("nickname", "alice").put("password", "hunter2")).coAwait()
+            .sendJsonObject(JsonObject().put("nickname", "alice").put("password", "hunter2-correct")).coAwait()
 
         assertEquals(200, response.statusCode())
         assertNotNull(response.bodyAsJsonObject().getString("token"))
@@ -240,7 +280,7 @@ class AuthHandlerTest {
         val (repo, client, port) = harness(vertx)
         val (_, activationKey) = repo.create(Role.USER)
         client.post(port, "localhost", "/api/auth/register").sendJsonObject(
-            JsonObject().put("activationKey", activationKey.toString()).put("nickname", "alice").put("password", "hunter2"),
+            JsonObject().put("activationKey", activationKey.toString()).put("nickname", "alice").put("password", "hunter2-correct"),
         ).coAwait()
 
         val response = client.post(port, "localhost", "/api/auth/login")
@@ -254,7 +294,7 @@ class AuthHandlerTest {
         val (_, client, port) = harness(vertx)
 
         val response = client.post(port, "localhost", "/api/auth/login")
-            .sendJsonObject(JsonObject().put("nickname", "nobody").put("password", "hunter2")).coAwait()
+            .sendJsonObject(JsonObject().put("nickname", "nobody").put("password", "hunter2-correct")).coAwait()
 
         assertEquals(401, response.statusCode())
     }
@@ -264,7 +304,7 @@ class AuthHandlerTest {
         val (repo, client, port) = harness(vertx)
         val (_, activationKey) = repo.create(Role.USER)
         client.post(port, "localhost", "/api/auth/register").sendJsonObject(
-            JsonObject().put("activationKey", activationKey.toString()).put("nickname", "alice").put("password", "hunter2"),
+            JsonObject().put("activationKey", activationKey.toString()).put("nickname", "alice").put("password", "hunter2-correct"),
         ).coAwait()
 
         repeat(3) {
@@ -273,7 +313,7 @@ class AuthHandlerTest {
         }
 
         val response = client.post(port, "localhost", "/api/auth/login")
-            .sendJsonObject(JsonObject().put("nickname", "alice").put("password", "hunter2")).coAwait()
+            .sendJsonObject(JsonObject().put("nickname", "alice").put("password", "hunter2-correct")).coAwait()
 
         assertEquals(403, response.statusCode())
         val frozen = repo.findByNickname("alice")
@@ -285,13 +325,13 @@ class AuthHandlerTest {
         val (repo, client, port) = harness(vertx)
         val (_, activationKey) = repo.create(Role.USER)
         client.post(port, "localhost", "/api/auth/register").sendJsonObject(
-            JsonObject().put("activationKey", activationKey.toString()).put("nickname", "alice").put("password", "hunter2"),
+            JsonObject().put("activationKey", activationKey.toString()).put("nickname", "alice").put("password", "hunter2-correct"),
         ).coAwait()
         client.post(port, "localhost", "/api/auth/login")
             .sendJsonObject(JsonObject().put("nickname", "alice").put("password", "wrong")).coAwait()
 
         val response = client.post(port, "localhost", "/api/auth/login")
-            .sendJsonObject(JsonObject().put("nickname", "alice").put("password", "hunter2")).coAwait()
+            .sendJsonObject(JsonObject().put("nickname", "alice").put("password", "hunter2-correct")).coAwait()
 
         assertEquals(200, response.statusCode())
     }

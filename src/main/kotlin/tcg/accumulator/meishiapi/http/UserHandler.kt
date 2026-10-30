@@ -17,7 +17,6 @@ import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
 import java.util.UUID
 
-private const val MIN_PASSWORD_LENGTH = 8
 private val DISCORD_NAME_PATTERN = Regex("[a-z0-9_.]{2,32}")
 private const val CALLER_ID_KEY = "callerId"
 private const val CALLER_ROLE_KEY = "callerRole"
@@ -87,8 +86,10 @@ class UserHandler(
     fun changeMyNickname(ctx: RoutingContext) = respond(ctx) {
         val id = callerId(ctx)
         val body = requiredJsonBody(ctx)
-        val nickname = stringField(body, "nickname")?.takeIf { it.isNotBlank() }
-            ?: raise(AppError.BadRequest("nickname required"))
+        val nickname = validNickname(
+            stringField(body, "nickname")?.takeIf { it.isNotBlank() }
+                ?: raise(AppError.BadRequest("nickname required")),
+        )
         repository.updateNickname(id, nickname).bind()
         val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
         log.info("user {} changed nickname to '{}'", id, nickname)
@@ -100,11 +101,11 @@ class UserHandler(
         val body = requiredJsonBody(ctx)
         val oldPassword = stringField(body, "oldPassword")?.takeIf { it.isNotBlank() }
             ?: raise(AppError.BadRequest("oldPassword required"))
-        val newPassword = stringField(body, "newPassword")?.takeIf { it.isNotBlank() }
-            ?: raise(AppError.BadRequest("newPassword required"))
-        if (newPassword.length < MIN_PASSWORD_LENGTH) {
-            raise(AppError.BadRequest("newPassword must be at least $MIN_PASSWORD_LENGTH characters"))
-        }
+        val newPassword = validPassword(
+            stringField(body, "newPassword")?.takeIf { it.isNotBlank() }
+                ?: raise(AppError.BadRequest("newPassword required")),
+            "newPassword",
+        )
         val record = repository.findAuthRecordById(id) ?: raise(AppError.NotFound("user not found"))
         if (!hasher.verify(record.passwordHash, oldPassword)) {
             log.warn("password change failed: incorrect old password for {}", id)
@@ -181,8 +182,10 @@ class UserHandler(
         val id = pathId(ctx)
         val body = requiredJsonBody(ctx)
         val nickname = if (body.containsKey("nickname")) {
-            stringField(body, "nickname")?.takeIf { it.isNotBlank() }
-                ?: raise(AppError.BadRequest("nickname must not be blank"))
+            validNickname(
+                stringField(body, "nickname")?.takeIf { it.isNotBlank() }
+                    ?: raise(AppError.BadRequest("nickname must not be blank")),
+            )
         } else {
             null
         }
@@ -195,8 +198,11 @@ class UserHandler(
     fun adminSetPassword(ctx: RoutingContext) = respond(ctx) {
         val id = pathId(ctx)
         val body = requiredJsonBody(ctx)
-        val newPassword = stringField(body, "newPassword")?.takeIf { it.isNotBlank() }
-            ?: raise(AppError.BadRequest("newPassword required"))
+        val newPassword = validPassword(
+            stringField(body, "newPassword")?.takeIf { it.isNotBlank() }
+                ?: raise(AppError.BadRequest("newPassword required")),
+            "newPassword",
+        )
         if (!repository.updatePassword(id, hasher.hash(newPassword))) {
             raise(AppError.NotFound("user not found"))
         }
@@ -241,6 +247,7 @@ class UserHandler(
             .filter { (jsonKey, _) -> body.containsKey(jsonKey) }
             .associate { (jsonKey, column) -> column to stringField(body, jsonKey) }
             .also { fields ->
+                validProfileFields(fields)
                 fields["discord_name"]?.let {
                     if (!DISCORD_NAME_PATTERN.matches(it)) {
                         raise(AppError.BadRequest("discordName must be 2-32 characters of a-z, 0-9, _ or ."))

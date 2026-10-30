@@ -179,7 +179,7 @@ paths:
               required: [oldPassword, newPassword]
               properties:
                 oldPassword: { type: string }
-                newPassword: { type: string, minLength: 8 }
+                newPassword: { type: string, minLength: 12, maxLength: 128 }
       responses:
         '204': { description: Password changed }
         '400': { $ref: '#/components/responses/BadRequest' }

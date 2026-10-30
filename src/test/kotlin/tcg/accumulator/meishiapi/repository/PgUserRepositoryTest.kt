@@ -59,7 +59,15 @@ class PgUserRepositoryTest {
 
     @Test
     fun `all migrations apply to an empty database`() {
-        assertEquals(6, PostgresTestSupport.migrationCount())
+        assertEquals(7, PostgresTestSupport.migrationCount())
+    }
+
+    @Test
+    fun `nicknames differing only in case collide`() = runBlocking {
+        activatedUser("admin")
+        val (id, _) = repo.create(Role.USER)
+
+        assertIs<AppError.Conflict>(repo.activate(id, "Admin", "hash").leftOrNull())
     }
 
     @Test

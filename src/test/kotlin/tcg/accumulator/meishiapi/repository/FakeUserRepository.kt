@@ -57,7 +57,7 @@ class FakeUserRepository : UserRepository {
     override suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit> = either {
         val record = byId.getValue(id)
         if (record.activatedAt != null) raise(AppError.Conflict("invalid activation key"))
-        if (byId.values.any { it.nickname == nickname && it.id != id }) {
+        if (byId.values.any { it.nickname.equals(nickname, ignoreCase = true) && it.id != id }) {
             raise(AppError.Conflict("nickname already taken"))
         }
         record.nickname = nickname
@@ -96,7 +96,7 @@ class FakeUserRepository : UserRepository {
     }
 
     override suspend fun updateNickname(id: UUID, nickname: String): Either<AppError, Unit> = either {
-        if (byId.values.any { it.nickname == nickname && it.id != id }) {
+        if (byId.values.any { it.nickname.equals(nickname, ignoreCase = true) && it.id != id }) {
             raise(AppError.Conflict("nickname already taken"))
         }
         byId.getValue(id).nickname = nickname
@@ -113,7 +113,7 @@ class FakeUserRepository : UserRepository {
         nickname: String?,
         fields: Map<String, String?>,
     ): Either<AppError, Unit> = either {
-        if (nickname != null && byId.values.any { it.nickname == nickname && it.id != id }) {
+        if (nickname != null && byId.values.any { it.nickname.equals(nickname, ignoreCase = true) && it.id != id }) {
             raise(AppError.Conflict("nickname already taken"))
         }
         val record = byId[id] ?: return@either

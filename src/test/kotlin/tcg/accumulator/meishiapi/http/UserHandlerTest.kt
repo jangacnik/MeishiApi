@@ -353,6 +353,18 @@ class UserHandlerTest {
     }
 
     @Test
+    fun `updateProfile rejects an oversized email`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = userToken(h)
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/me")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("email", "a".repeat(250) + "@example.com")).coAwait()
+
+        assertEquals(400, response.statusCode())
+    }
+
+    @Test
     fun `changeMyPassword rejects an incorrect old password`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx)
         val (id, _) = h.repo.create(Role.USER)
