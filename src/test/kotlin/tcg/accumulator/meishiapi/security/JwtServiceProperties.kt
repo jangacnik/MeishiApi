@@ -4,6 +4,7 @@ import io.vertx.core.Vertx
 import io.vertx.core.json.JsonObject
 import net.jqwik.api.Arbitraries
 import net.jqwik.api.Arbitrary
+import net.jqwik.api.Example
 import net.jqwik.api.ForAll
 import net.jqwik.api.Property
 import net.jqwik.api.Provide
@@ -76,7 +77,14 @@ class JwtServiceProperties {
 
     @Property
     fun `subjectOf never throws and accepts canonical uuids`(@ForAll("looseValues") sub: Any?) {
-        service.subjectOf(JsonObject().put("sub", sub))
+        val parsed = service.subjectOf(JsonObject().put("sub", sub))
+
+        if (parsed != null) assertEquals(parsed.toString(), (sub as String).lowercase())
+    }
+
+    @Example
+    fun `subjectOf rejects lenient short-group uuids`() {
+        assertNull(service.subjectOf(JsonObject().put("sub", "1-1-1-1-1")))
     }
 
     @Property
