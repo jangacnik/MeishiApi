@@ -5,6 +5,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.repository.FakeUserRepository
+import tcg.accumulator.meishiapi.repository.UserRepository
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -29,5 +30,14 @@ class DeletionPurgeJobTest {
         assertNotNull(repo.findById(recent))
         assertNotNull(repo.findById(admin))
         assertEquals(listOf("PURGE_USER"), repo.audit.map { it.action })
+    }
+
+    @Test
+    fun `runOnce swallows repository failures and reports nothing purged`() = runBlocking {
+        val failing = object : UserRepository by FakeUserRepository() {
+            override suspend fun purgeExpiredDeletions(retentionDays: Int): Int = error("db down")
+        }
+
+        assertEquals(0, DeletionPurgeJob(Vertx.vertx(), failing).runOnce())
     }
 }
