@@ -34,6 +34,7 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
             val jwt = JwtService(vertx, config.jwtSecret)
 
             seedAdminIfMissing(repository, hasher, config)
+            DeletionPurgeJob(vertx, repository).start()
 
             val router = buildRouter(
                 vertx, repository, hasher, jwt,

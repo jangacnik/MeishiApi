@@ -2,10 +2,12 @@ package tcg.accumulator.meishiapi.repository
 
 import arrow.core.Either
 import arrow.core.raise.either
+import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.pgclient.PgException
 import io.vertx.sqlclient.Pool
 import io.vertx.sqlclient.Row
+import io.vertx.sqlclient.SqlClient
 import io.vertx.sqlclient.Tuple
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.http.AppError
@@ -88,10 +90,11 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         return rows.firstOrNull()?.let(::toAuthRecord)
     }
 
-    override suspend fun listAll(): List<User> {
-        log.trace("list all users")
+    override suspend fun listAll(pendingDeletionOnly: Boolean): List<User> {
+        log.trace("list all users pendingDeletionOnly={}", pendingDeletionOnly)
+        val where = if (pendingDeletionOnly) "WHERE deletion_requested_at IS NOT NULL" else ""
         val rows = pool.query(
-            "SELECT $USER_COLUMNS FROM users ORDER BY created_at",
+            "SELECT $USER_COLUMNS FROM users $where ORDER BY created_at",
         ).execute().coAwait()
         return rows.map(::toUser)
     }
@@ -165,25 +168,21 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         }
     }
 
-    override suspend fun updateRole(id: UUID, role: Role): Boolean {
-        log.trace("update role of {} to {}", id, role)
-        val result = pool.preparedQuery(
-            "UPDATE users SET role = $1 WHERE id = $2",
-        ).execute(Tuple.of(role.name, id)).coAwait()
-        val updated = result.rowCount() > 0
-        if (updated) log.info("updated user {} role to {}", id, role) else log.warn("update role: user {} not found", id)
-        return updated
-    }
+    override suspend fun updateRole(actorId: UUID, id: UUID, role: Role): Either<AppError, Unit> =
+        guardedAdminMutation(
+            actorId, "CHANGE_ROLE", id, JsonObject().put("role", role.name),
+            removesActiveAdmin = role != Role.ADMIN,
+            sql = "UPDATE users SET role = $1 WHERE id = $2",
+            params = Tuple.of(role.name, id),
+        )
 
-    override suspend fun updateStatus(id: UUID, status: Status): Boolean {
-        log.trace("update status of {} to {}", id, status)
-        val result = pool.preparedQuery(
-            "UPDATE users SET status = $1, failed_login_attempts = 0, locked_until = NULL WHERE id = $2",
-        ).execute(Tuple.of(status.name, id)).coAwait()
-        val updated = result.rowCount() > 0
-        if (updated) log.info("updated user {} status to {}", id, status) else log.warn("update status: user {} not found", id)
-        return updated
-    }
+    override suspend fun updateStatus(actorId: UUID, id: UUID, status: Status): Either<AppError, Unit> =
+        guardedAdminMutation(
+            actorId, "CHANGE_STATUS", id, JsonObject().put("status", status.name),
+            removesActiveAdmin = status == Status.FROZEN,
+            sql = "UPDATE users SET status = $1, failed_login_attempts = 0, locked_until = NULL WHERE id = $2",
+            params = Tuple.of(status.name, id),
+        )
 
     override suspend fun registerFailedLoginAttempt(id: UUID): Boolean {
         log.trace("register failed login attempt for {}", id)
@@ -209,12 +208,31 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         ).execute(Tuple.of(id)).coAwait()
     }
 
-    override suspend fun delete(id: UUID): Boolean {
-        log.trace("delete user {}", id)
-        val result = pool.preparedQuery("DELETE FROM users WHERE id = $1").execute(Tuple.of(id)).coAwait()
-        val deleted = result.rowCount() > 0
-        if (deleted) log.info("deleted user {}", id) else log.warn("delete: user {} not found", id)
-        return deleted
+    override suspend fun delete(actorId: UUID, id: UUID): Either<AppError, Unit> =
+        guardedAdminMutation(
+            actorId, "DELETE_USER", id, JsonObject(),
+            removesActiveAdmin = true,
+            sql = "DELETE FROM users WHERE id = $1",
+            params = Tuple.of(id),
+        )
+
+    override suspend fun recordAdminAction(actorId: UUID, action: String, targetId: UUID) {
+        pool.insertAudit(actorId, action, targetId, JsonObject())
+    }
+
+    override suspend fun purgeExpiredDeletions(retentionDays: Int): Int {
+        val result = pool.preparedQuery(
+            """
+            WITH purged AS (
+                DELETE FROM users
+                WHERE deletion_requested_at < now() - make_interval(days => $1) AND role <> 'ADMIN'
+                RETURNING id
+            )
+            INSERT INTO admin_audit_log (actor_id, action, target_id)
+            SELECT NULL, 'PURGE_USER', id FROM purged
+            """.trimIndent(),
+        ).execute(Tuple.of(retentionDays)).coAwait()
+        return result.rowCount()
     }
 
     override suspend fun countAdmins(): Int {
@@ -246,6 +264,50 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         val updated = result.rowCount() > 0
         if (updated) log.info("user {} cancelled deletion request", id) else log.warn("cancel deletion request: user {} not found", id)
         return updated
+    }
+
+    /**
+     * Runs one admin mutation plus its audit row in a transaction. All active ADMIN rows are locked
+     * first, so two admins cannot concurrently remove each other and leave zero active admins.
+     */
+    private suspend fun guardedAdminMutation(
+        actorId: UUID,
+        action: String,
+        id: UUID,
+        details: JsonObject,
+        removesActiveAdmin: Boolean,
+        sql: String,
+        params: Tuple,
+    ): Either<AppError, Unit> {
+        val conn = pool.connection.coAwait()
+        try {
+            val tx = conn.begin().coAwait()
+            val result = either {
+                val activeAdmins = conn.query(
+                    "SELECT id FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE' ORDER BY id FOR UPDATE",
+                ).execute().coAwait().map { it.getUUID("id") }
+                if (removesActiveAdmin && id in activeAdmins && activeAdmins.size <= 1) {
+                    log.warn("{} on {} by {} rejected: last active admin", action, id, actorId)
+                    raise(AppError.Conflict("cannot remove the last active admin"))
+                }
+                if (conn.preparedQuery(sql).execute(params).coAwait().rowCount() == 0) {
+                    log.warn("{} on {} by {}: user not found", action, id, actorId)
+                    raise(AppError.NotFound("user not found"))
+                }
+                conn.insertAudit(actorId, action, id, details)
+                log.info("{} on {} by {}", action, id, actorId)
+            }
+            if (result.isRight()) tx.commit().coAwait() else tx.rollback().coAwait()
+            return result
+        } finally {
+            conn.close().coAwait()
+        }
+    }
+
+    private suspend fun SqlClient.insertAudit(actorId: UUID, action: String, targetId: UUID, details: JsonObject) {
+        preparedQuery(
+            "INSERT INTO admin_audit_log (actor_id, action, target_id, details) VALUES ($1, $2, $3, $4)",
+        ).execute(Tuple.of(actorId, action, targetId, details)).coAwait()
     }
 
     private fun toAuthRecord(row: Row) = AuthRecord(

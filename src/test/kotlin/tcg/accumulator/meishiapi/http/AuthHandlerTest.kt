@@ -348,7 +348,7 @@ class AuthHandlerTest {
         registerUser(repo, client, port, "alice")
         val bobId = registerUser(repo, client, port, "bob")
         registerUser(repo, client, port, "carol")
-        repo.updateStatus(bobId, Status.FROZEN)
+        repo.updateStatus(UUID.randomUUID(), bobId, Status.FROZEN)
         repeat(5) { login(client, port, "carol", "wrong") }
 
         val responses = listOf(
