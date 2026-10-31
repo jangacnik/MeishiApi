@@ -23,7 +23,12 @@ class DeletionPurgeJobTest {
         repo.backdateDeletionRequest(admin, DELETION_RETENTION_DAYS + 1L)
         repo.backdateDeletionRequest(recent, DELETION_RETENTION_DAYS - 1L)
 
-        val purged = DeletionPurgeJob(Vertx.vertx(), repo).runOnce()
+        val vertx = Vertx.vertx()
+        val purged = try {
+            DeletionPurgeJob(vertx, repo).runOnce()
+        } finally {
+            vertx.close()
+        }
 
         assertEquals(1, purged)
         assertNull(repo.findById(expired))
@@ -38,6 +43,11 @@ class DeletionPurgeJobTest {
             override suspend fun purgeExpiredDeletions(retentionDays: Int): Int = error("db down")
         }
 
-        assertEquals(0, DeletionPurgeJob(Vertx.vertx(), failing).runOnce())
+        val vertx = Vertx.vertx()
+        try {
+            assertEquals(0, DeletionPurgeJob(vertx, failing).runOnce())
+        } finally {
+            vertx.close()
+        }
     }
 }

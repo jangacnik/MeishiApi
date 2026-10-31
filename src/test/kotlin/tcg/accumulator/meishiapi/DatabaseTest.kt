@@ -3,21 +3,24 @@ package tcg.accumulator.meishiapi
 import io.vertx.core.Vertx
 import io.vertx.kotlin.coroutines.coAwait
 import kotlinx.coroutines.runBlocking
+import org.flywaydb.core.api.FlywayException
+import org.junit.jupiter.api.Timeout
 import tcg.accumulator.meishiapi.repository.PostgresTestSupport
 import java.net.ServerSocket
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class DatabaseTest {
 
     @Test
-    fun `pool is built for every supported ssl mode spelling`(): Unit = runBlocking {
+    fun `pool is built for every supported ssl mode and rejects unknown ones`(): Unit = runBlocking {
         val vertx = Vertx.vertx()
         try {
-            listOf(null, "disable", "require", "verify-ca", "verify-full").forEach { mode ->
+            assertFailsWith<IllegalArgumentException> { createPool(vertx, testConfig(dbSslMode = "bogus")) }
+            listOf(null, "disable", "allow", "prefer", "require", "verify-ca", "verify-full").forEach { mode ->
                 val pool = createPool(vertx, testConfig(dbSslMode = mode))
                 assertNotNull(pool)
                 pool.close().coAwait()
@@ -28,10 +31,11 @@ class DatabaseTest {
     }
 
     @Test
+    @Timeout(30)
     fun `migrations fail when the database is unreachable`() {
         val closedPort = ServerSocket(0).use { it.localPort }
 
-        assertFails { runMigrations(testConfig(dbPort = closedPort)) }
+        assertFailsWith<FlywayException> { runMigrations(testConfig(dbPort = closedPort)) }
     }
 
     @Test

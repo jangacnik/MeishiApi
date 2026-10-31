@@ -15,8 +15,14 @@ object PostgresTestSupport {
     private val user: String = System.getenv("TEST_DB_USER") ?: "meishi"
     private val password: String = System.getenv("TEST_DB_PASSWORD") ?: "meishi"
 
-    /** CI provides a Postgres sidecar via TEST_DB_URL; without it DB-backed tests are skipped. */
-    fun requireDatabase() = assumeTrue(jdbcUrl != null, "TEST_DB_URL not set")
+    /** CI provides a Postgres sidecar via TEST_DB_URL and must not silently skip; locally DB-backed tests are skipped without it. */
+    fun requireDatabase() {
+        if (System.getenv("CI") != null) {
+            check(jdbcUrl != null) { "TEST_DB_URL must be set in CI" }
+        } else {
+            assumeTrue(jdbcUrl != null, "TEST_DB_URL not set")
+        }
+    }
 
     fun migrateCleanDatabase() {
         Flyway.configure()
@@ -46,7 +52,7 @@ object PostgresTestSupport {
         return testConfig(
             httpPort = httpPort,
             dbHost = uri.host,
-            dbPort = uri.port,
+            dbPort = uri.port.takeIf { it != -1 } ?: 5432,
             dbName = uri.path.removePrefix("/"),
             dbUser = user,
             dbPassword = password,

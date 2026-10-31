@@ -21,7 +21,7 @@ class RoutingTest {
     private suspend fun port(vertx: Vertx, clientIpHeader: String?, readinessCheck: suspend () -> Unit = {}): Int {
         val router = buildRouter(
             vertx, FakeUserRepository(), PasswordHasher(vertx), JwtService(vertx, "test-secret"),
-            LoginRateLimiter(1), clientIpHeader, readinessCheck,
+            LoginRateLimiter(1) { 0L }, clientIpHeader, readinessCheck,
         )
         return vertx.createHttpServer().requestHandler(router).listen(0).coAwait().actualPort()
     }
@@ -37,7 +37,9 @@ class RoutingTest {
         val client = WebClient.create(vertx)
 
         assertEquals(401, loginFrom(client, port, "spoofed-1, 9.9.9.9").statusCode())
-        assertEquals(429, loginFrom(client, port, "spoofed-2, 9.9.9.9").statusCode())
+        val limited = loginFrom(client, port, "spoofed-2, 9.9.9.9")
+        assertEquals(429, limited.statusCode())
+        assertEquals("60", limited.getHeader("Retry-After"))
         assertEquals(401, loginFrom(client, port, "spoofed-1, 8.8.8.8").statusCode())
     }
 
@@ -47,7 +49,9 @@ class RoutingTest {
         val client = WebClient.create(vertx)
 
         assertEquals(401, loginFrom(client, port, "1.1.1.1").statusCode())
-        assertEquals(429, loginFrom(client, port, "2.2.2.2").statusCode())
+        val limited = loginFrom(client, port, "2.2.2.2")
+        assertEquals(429, limited.statusCode())
+        assertEquals("60", limited.getHeader("Retry-After"))
     }
 
     @Test
