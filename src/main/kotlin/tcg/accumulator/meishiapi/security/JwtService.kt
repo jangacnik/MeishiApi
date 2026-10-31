@@ -7,7 +7,6 @@ import io.vertx.ext.auth.PubSecKeyOptions
 import io.vertx.ext.auth.jwt.JWTAuth
 import io.vertx.ext.auth.jwt.JWTAuthOptions
 import org.slf4j.LoggerFactory
-import tcg.accumulator.meishiapi.http.parseUuidOrNull
 import tcg.accumulator.meishiapi.model.Role
 import java.util.UUID
 
@@ -39,6 +38,11 @@ class JwtService(vertx: Vertx, secret: String) {
     }
 
     fun subjectOf(principal: JsonObject): UUID? {
-        return parseUuidOrNull(principal.getValue("sub") as? String)
+        val subject = principal.getValue("sub") as? String ?: return null
+        return try {
+            UUID.fromString(subject)
+        } catch (e: IllegalArgumentException) {
+            null
+        }
     }
 }
