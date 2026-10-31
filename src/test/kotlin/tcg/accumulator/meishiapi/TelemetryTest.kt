@@ -1,5 +1,6 @@
 package tcg.accumulator.meishiapi
 
+import io.opentelemetry.sdk.OpenTelemetrySdk
 import io.opentelemetry.sdk.trace.SdkTracerProvider
 import tcg.accumulator.meishiapi.telemetry.buildOpenTelemetry
 import kotlin.test.Test
@@ -14,7 +15,8 @@ class TelemetryTest {
         val second = buildOpenTelemetry("meishi-api-test")
 
         assertNotSame(first, second)
-        assertIs<SdkTracerProvider>(first.sdkTracerProvider)
+        val sdk = assertIs<OpenTelemetrySdk>(first)
+        assertIs<SdkTracerProvider>(sdk.sdkTracerProvider)
         val span = first.getTracer("test").spanBuilder("op").startSpan()
         assertEquals(true, span.spanContext.isValid)
         span.end()

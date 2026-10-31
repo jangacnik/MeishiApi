@@ -8,6 +8,7 @@ import net.jqwik.api.ForAll
 import net.jqwik.api.Property
 import net.jqwik.api.Provide
 import net.jqwik.api.lifecycle.AfterContainer
+import org.junit.jupiter.api.Test
 import tcg.accumulator.meishiapi.model.Role
 import java.util.Base64
 import java.util.UUID
@@ -76,7 +77,14 @@ class JwtServiceProperties {
 
     @Property
     fun `subjectOf never throws and accepts canonical uuids`(@ForAll("looseValues") sub: Any?) {
-        service.subjectOf(JsonObject().put("sub", sub))
+        val parsed = service.subjectOf(JsonObject().put("sub", sub))
+
+        if (parsed != null) assertEquals(parsed.toString(), (sub as String).lowercase())
+    }
+
+    @Test
+    fun `subjectOf rejects lenient short-group uuids`() {
+        assertNull(service.subjectOf(JsonObject().put("sub", "1-1-1-1-1")))
     }
 
     @Property
