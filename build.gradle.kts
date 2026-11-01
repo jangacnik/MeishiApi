@@ -1,7 +1,7 @@
 plugins {
     kotlin("jvm") version "2.4.20"
     application
-    id("org.jetbrains.kotlinx.kover") version "0.9.1"
+    id("org.jetbrains.kotlinx.kover") version "0.9.11"
 }
 
 group = "tcg.accumulator"
