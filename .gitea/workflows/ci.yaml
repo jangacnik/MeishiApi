@@ -32,7 +32,7 @@ jobs:
         run: |
           git fetch -q origin master
           git diff origin/master...HEAD > pr.diff
-          docker run --rm -v "$PWD":/w -w /w python:3.13-alpine sh -c "pip install -q diff-cover && diff-cover build/reports/kover/report.xml --diff-file pr.diff --fail-under=80"
+          docker run --rm -v "$PWD":/w -w /w python:3.13-alpine sh -c "apk add -q git && git config --global --add safe.directory /w && pip install -q diff-cover && diff-cover build/reports/kover/report.xml --diff-file pr.diff --fail-under=80"
   build:
     needs: test
     if: github.ref == 'refs/heads/master'
