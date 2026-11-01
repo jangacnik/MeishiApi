@@ -2,6 +2,7 @@ package tcg.accumulator.meishiapi.http
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 
 class AppErrorTest {
     @Test
@@ -17,5 +18,20 @@ class AppErrorTest {
     @Test
     fun `message is preserved`() {
         assertEquals("nickname required", AppError.BadRequest("nickname required").message)
+    }
+
+    @Test
+    fun `too many requests carries its retry delay`() {
+        val error = AppError.TooManyRequests("slow down", 42)
+
+        assertEquals(429, error.status)
+        assertEquals(42L, error.retryAfterSeconds)
+    }
+
+    @Test
+    fun `internal error keeps its cause`() {
+        val cause = IllegalStateException("db down")
+
+        assertSame(cause, AppError.Internal("x", cause).cause)
     }
 }

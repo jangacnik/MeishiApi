@@ -98,7 +98,8 @@ class UserHandlerTest {
         val (id, _) = h.repo.create(Role.ADMIN)
         h.repo.activate(id, "admin", "hash")
         val token = h.jwt.generateToken(id, "admin", Role.ADMIN)
-        h.repo.updateRole(id, Role.USER)
+        h.repo.create(Role.ADMIN)
+        h.repo.updateRole(UUID.randomUUID(), id, Role.USER)
 
         val response = h.client.get(h.port, "localhost", "/api/users")
             .putHeader("Authorization", "Bearer $token").send().coAwait()
@@ -112,7 +113,7 @@ class UserHandlerTest {
         val (id, _) = h.repo.create(Role.USER)
         h.repo.activate(id, "bob", "hash")
         val token = h.jwt.generateToken(id, "bob", Role.USER)
-        h.repo.updateStatus(id, Status.FROZEN)
+        h.repo.updateStatus(UUID.randomUUID(), id, Status.FROZEN)
 
         val response = h.client.get(h.port, "localhost", "/api/users/me")
             .putHeader("Authorization", "Bearer $token").send().coAwait()
@@ -163,7 +164,7 @@ class UserHandlerTest {
         val (id, _) = h.repo.create(Role.USER)
         h.repo.activate(id, "bob", "hash")
         val token = h.jwt.generateToken(id, "bob", Role.USER)
-        h.repo.delete(id)
+        h.repo.delete(UUID.randomUUID(), id)
 
         val response = h.client.get(h.port, "localhost", "/api/users/me")
             .putHeader("Authorization", "Bearer $token").send().coAwait()
@@ -323,6 +324,77 @@ class UserHandlerTest {
 
         assertEquals(409, response.statusCode())
         assertEquals(1, h.repo.countAdmins())
+    }
+
+    @Test
+    fun `admin cannot demote themselves`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        h.repo.create(Role.ADMIN)
+        val selfId = h.repo.listAll().first { it.role == Role.ADMIN }.id
+
+        val response = h.client.patch(h.port, "localhost", "/api/users/$selfId")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("role", "USER")).coAwait()
+
+        assertEquals(409, response.statusCode())
+    }
+
+    @Test
+    fun `admin cannot freeze or delete themselves`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        h.repo.create(Role.ADMIN)
+        val selfId = h.repo.listAll().first { it.role == Role.ADMIN }.id
+
+        val freeze = h.client.patch(h.port, "localhost", "/api/users/$selfId/status")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("status", "FROZEN")).coAwait()
+        val delete = h.client.delete(h.port, "localhost", "/api/users/$selfId")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(409, freeze.statusCode())
+        assertEquals(409, delete.statusCode())
+    }
+
+    @Test
+    fun `admin mutations write audit rows`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        val callerId = h.repo.listAll().single().id
+        val (id, _) = h.repo.create(Role.USER)
+
+        h.client.patch(h.port, "localhost", "/api/users/$id")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("role", "ADMIN")).coAwait()
+        h.client.patch(h.port, "localhost", "/api/users/$id/status")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("status", "FROZEN")).coAwait()
+        h.client.patch(h.port, "localhost", "/api/users/$id/password")
+            .putHeader("Authorization", "Bearer $token")
+            .sendJsonObject(JsonObject().put("newPassword", "a-long-enough-password")).coAwait()
+        h.client.delete(h.port, "localhost", "/api/users/$id")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(
+            listOf("CHANGE_ROLE", "CHANGE_STATUS", "SET_PASSWORD", "DELETE_USER"),
+            h.repo.audit.map { it.action },
+        )
+        assertEquals(setOf<UUID?>(callerId), h.repo.audit.map { it.actorId }.toSet())
+    }
+
+    @Test
+    fun `list filters pending deletion requests`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val token = adminToken(h)
+        val (pending, _) = h.repo.create(Role.USER)
+        h.repo.create(Role.USER)
+        h.repo.requestDeletion(pending)
+
+        val response = h.client.get(h.port, "localhost", "/api/users?pendingDeletion=true")
+            .putHeader("Authorization", "Bearer $token").send().coAwait()
+
+        assertEquals(listOf(pending.toString()), response.bodyAsJsonArray().map { (it as JsonObject).getString("id") })
     }
 
     @Test

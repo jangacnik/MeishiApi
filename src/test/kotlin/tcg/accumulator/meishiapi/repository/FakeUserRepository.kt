@@ -11,6 +11,7 @@ import tcg.accumulator.meishiapi.security.lockMinutes
 import java.time.OffsetDateTime
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 /** In-memory [UserRepository] double for handler tests, no Postgres required. */
 class FakeUserRepository : UserRepository {
@@ -42,6 +43,10 @@ class FakeUserRepository : UserRepository {
 
     private val byId = ConcurrentHashMap<UUID, Record>()
 
+    data class AuditEntry(val actorId: UUID?, val action: String, val targetId: UUID)
+
+    val audit = CopyOnWriteArrayList<AuditEntry>()
+
     override suspend fun create(role: Role): Pair<UUID, UUID> {
         val id = UUID.randomUUID()
         val activationKey = UUID.randomUUID()
@@ -70,25 +75,39 @@ class FakeUserRepository : UserRepository {
 
     override suspend fun findAuthRecordById(id: UUID): AuthRecord? = byId[id]?.toAuthRecord()
 
-    override suspend fun listAll(): List<User> =
-        byId.values.sortedBy { it.createdAt }.map { it.toUser() }
+    override suspend fun listAll(pendingDeletionOnly: Boolean): List<User> =
+        byId.values.filter { !pendingDeletionOnly || it.deletionRequestedAt != null }
+            .sortedBy { it.createdAt }.map { it.toUser() }
 
     override suspend fun listActivatedNicknames(): List<NicknameEntry> =
         byId.values.filter { it.activatedAt != null }.sortedBy { it.createdAt }
             .map { NicknameEntry(it.id, checkNotNull(it.nickname)) }
 
-    override suspend fun updateRole(id: UUID, role: Role): Boolean {
-        val record = byId[id] ?: return false
-        record.role = role
-        return true
-    }
+    override suspend fun updateRole(actorId: UUID, id: UUID, role: Role): Either<AppError, Unit> =
+        adminMutation(actorId, "CHANGE_ROLE", id, removesActiveAdmin = role != Role.ADMIN) { it.role = role }
 
-    override suspend fun updateStatus(id: UUID, status: Status): Boolean {
-        val record = byId[id] ?: return false
-        record.status = status
-        record.failedLoginAttempts = 0
-        record.lockedUntil = null
-        return true
+    override suspend fun updateStatus(actorId: UUID, id: UUID, status: Status): Either<AppError, Unit> =
+        adminMutation(actorId, "CHANGE_STATUS", id, removesActiveAdmin = status == Status.FROZEN) {
+            it.status = status
+            it.failedLoginAttempts = 0
+            it.lockedUntil = null
+        }
+
+    private fun adminMutation(
+        actorId: UUID,
+        action: String,
+        id: UUID,
+        removesActiveAdmin: Boolean,
+        mutate: (Record) -> Unit,
+    ): Either<AppError, Unit> = either {
+        val record = byId[id] ?: raise(AppError.NotFound("user not found"))
+        val activeAdmins = byId.values.count { it.role == Role.ADMIN && it.status == Status.ACTIVE }
+        val isActiveAdmin = record.role == Role.ADMIN && record.status == Status.ACTIVE
+        if (removesActiveAdmin && isActiveAdmin && activeAdmins <= 1) {
+            raise(AppError.Conflict("cannot remove the last active admin"))
+        }
+        mutate(record)
+        audit += AuditEntry(actorId, action, id)
     }
 
     override suspend fun updateProfile(id: UUID, fields: Map<String, String?>): Boolean {
@@ -165,7 +184,27 @@ class FakeUserRepository : UserRepository {
         byId.getValue(id).lockedUntil = OffsetDateTime.now().minusSeconds(1)
     }
 
-    override suspend fun delete(id: UUID): Boolean = byId.remove(id) != null
+    override suspend fun delete(actorId: UUID, id: UUID): Either<AppError, Unit> =
+        adminMutation(actorId, "DELETE_USER", id, removesActiveAdmin = true) { byId.remove(id) }
+
+    override suspend fun recordAdminAction(actorId: UUID, action: String, targetId: UUID) {
+        audit += AuditEntry(actorId, action, targetId)
+    }
+
+    override suspend fun purgeExpiredDeletions(retentionDays: Int): Int {
+        val cutoff = OffsetDateTime.now().minusDays(retentionDays.toLong())
+        val expired = byId.values.filter { it.role != Role.ADMIN && it.deletionRequestedAt?.isBefore(cutoff) == true }
+        expired.forEach {
+            byId.remove(it.id)
+            audit += AuditEntry(null, "PURGE_USER", it.id)
+        }
+        return expired.size
+    }
+
+    /** Backdates a pending deletion request, as if it had been made [days] days ago. */
+    fun backdateDeletionRequest(id: UUID, days: Long) {
+        byId.getValue(id).deletionRequestedAt = OffsetDateTime.now().minusDays(days)
+    }
 
     override suspend fun countAdmins(): Int = byId.values.count { it.role == Role.ADMIN }
 
