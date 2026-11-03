@@ -165,24 +165,39 @@ Each step is independently deployable and reversible, and `POST /api/auth/login`
    its `$remote_addr`, which is the edge proxy or a node after NodePort SNAT, and `CLIENT_IP_HEADER` is unset, so
    `LoginRateLimiter` keys on that address. Once every app logs in through meishifrontend, all users of all apps would
    share one 10-attempts-per-minute bucket. Keying the limit per nickname was rejected because anyone could then
-   throttle a chosen user. The fix has three parts, in this order:
-   1. The meishifrontend Service uses `externalTrafficPolicy: Local`, so the pod sees the real peer instead of a node
-      address after SNAT. Its nginx trusts `X-Real-IP` only from the edge proxy's own address (`set_real_ip_from
-      192.168.0.22/32`, `real_ip_header X-Real-IP`). Trusting private ranges is not enough, because with SNAT any LAN
-      host or pod would look like a trusted peer. With `Local`, only nodes that run a meishifrontend pod answer on the
-      NodePort, so the edge proxy must forward to such a node. Before relying on the header, confirm two things: the
-      edge proxy overwrites a client-sent `X-Real-IP`, and its `$remote_addr` is the real client, not a TCP relay in
-      front of it.
-   2. meishi-api stops being reachable from outside the cluster. Today it is a NodePort (30081), published by the edge
-      proxy as `meishi-api.gacnikhome.duckdns.org`. Once `CLIENT_IP_HEADER` is set, anyone who can reach it directly
-      can send any `X-Forwarded-For` and get unlimited login attempts. The Service becomes `ClusterIP` and its edge
-      proxy host is removed. omiyage-api already calls it by cluster DNS (`MEISHI_API_URL` is a `*.svc.cluster.local`
-      address), but any other caller of the public host, such as tcg-reader, must move to meishifrontend's `/api/` or
-      cluster DNS first. A NetworkPolicy is not an alternative here: the cluster CNI is flannel, which does not
-      enforce NetworkPolicy.
-   3. `CLIENT_IP_HEADER=X-Forwarded-For` is set on meishi-api. MeishiApi uses the last `X-Forwarded-For` entry, which
-      meishifrontend's nginx wrote from the trusted `X-Real-IP`. A client can choose that entry only through an
-      untrusted path, and steps 1 and 2 close those paths.
+   throttle a chosen user. The code side is inert until the infrastructure steps below are done: meishifrontend's
+   nginx trusts `X-Real-IP` only from the edge proxy (`set_real_ip_from 192.168.0.22/32`), and MeishiApi ignores
+   `X-Forwarded-For` while `CLIENT_IP_HEADER` is unset. The infrastructure steps go in `homelab-gitops` and the edge
+   proxy, one at a time, each checked before the next:
+
+   1. Pin the meishifrontend Deployment to one node (`nodeSelector: kubernetes.io/hostname: k8s-node-2`). This is a
+      single point of failure: if that node is down, Meishi is down until the pin moves. With one replica the pod
+      already lives on one node, but today Kubernetes can reschedule it elsewhere.
+   2. Point the edge proxy's Meishi host at that node (`192.168.0.24:30084`; today it is k8s-ctrl, `192.168.0.20`).
+      This works with the current policy, so check the site before going on.
+   3. Set `externalTrafficPolicy: Local` on the meishifrontend Service. Only nodes that run the pod answer on the
+      NodePort, and the pod now sees the edge proxy (`192.168.0.22`) as its peer instead of a flannel address
+      (`10.244.0.0` today). Check that the nginx access log shows client addresses.
+   4. Confirm that the internet path cannot set `X-Real-IP`. The edge proxy itself trusts `X-Real-IP` from CDN and
+      private ranges and also listens on IPv6, and the owner is testing whether a client can spoof it. Stop here until
+      that is settled.
+   5. Make meishi-api unreachable from outside the cluster. Today it is a NodePort (30081), published by the edge
+      proxy as `meishi-api.gacnikhome.duckdns.org`. Anyone who reaches it directly could send any `X-Forwarded-For`
+      once the next step is done. The Service becomes `ClusterIP` and its edge proxy host is removed. omiyage-api
+      already calls it by cluster DNS (`MEISHI_API_URL` is a `*.svc.cluster.local` address). Any other caller of the
+      public host, such as tcg-reader, must move to meishifrontend's `/api/` or to cluster DNS first. A
+      NetworkPolicy is no alternative: the CNI is flannel, which does not enforce NetworkPolicy.
+   6. Set `CLIENT_IP_HEADER=X-Forwarded-For` on meishi-api. MeishiApi uses the last entry, which meishifrontend's
+      nginx wrote from the trusted `X-Real-IP`.
+
+   Rollback runs in reverse order: unset `CLIENT_IP_HEADER`, restore the meishi-api NodePort and edge host if needed,
+   set the Service back to `externalTrafficPolicy: Cluster`, point the edge proxy at any node again, then remove the
+   pin. Each step on its own leaves Meishi working, because the code falls back to today's behaviour while the header
+   is not trusted.
+
+   Rejected alternative: keep the `Cluster` policy and trust the flannel range. With SNAT every request, including
+   one sent straight to any node's NodePort from the LAN, arrives from a `10.244.x.0` address, so anyone on the LAN
+   or in a pod could choose their bucket.
 4. Omiyage adds "Continue with Meishi" next to the existing form, then links profile pages to Meishi.
 5. tcg-reader does the same.
 6. Once both are stable, apps remove their password forms and profile proxy routes. Tokens already issued stay valid
@@ -209,8 +224,8 @@ routes go away in step 6.
 that checks `state`, calls the token endpoint, runs `verifyMeishiToken` and sets `tcg_reader_session`. Remove the form
 and `/api/auth/login` in step 6.
 
-**homelab-gitops**: set `externalTrafficPolicy: Local` on `meishifrontend`, make `meishi-api` a `ClusterIP` Service, then
-add `CLIENT_IP_HEADER=X-Forwarded-For` (all step 3) and `OAUTH_CLIENTS` to the `meishi-api`
+**homelab-gitops**: the ordered steps of migration step 3 (pin meishifrontend, `externalTrafficPolicy: Local`,
+`meishi-api` as `ClusterIP`, then `CLIENT_IP_HEADER=X-Forwarded-For`), and `OAUTH_CLIENTS` on the `meishi-api`
 deployment.
 
 ## Consequences
