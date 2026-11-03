@@ -11,6 +11,11 @@ fun lockMinutes(failedAttempts: Int): Int {
     return minOf(LOCK_BASE_MINUTES shl doublings, LOCK_MAX_MINUTES)
 }
 
-/** Postgres expression equal to [lockMinutes] over the already-incremented `failed_login_attempts + 1`. */
+/**
+ * Postgres expression equal to [lockMinutes] over the already-incremented `failed_login_attempts + 1`.
+ * `GREATEST(.., 0)` mirrors `coerceAtLeast(0)`: below the threshold Postgres would shift by a negative count,
+ * which overflows. The repository evaluates it only at multiples of the threshold, so this changes no lock.
+ */
 const val LOCK_MINUTES_SQL =
-    "LEAST($LOCK_BASE_MINUTES * (1 << LEAST((failed_login_attempts + 1) / $LOCK_AFTER_FAILED_ATTEMPTS - 1, $MAX_DOUBLINGS)), $LOCK_MAX_MINUTES)"
+    "LEAST($LOCK_BASE_MINUTES * (1 << LEAST(GREATEST((failed_login_attempts + 1) / $LOCK_AFTER_FAILED_ATTEMPTS - 1, 0), " +
+        "$MAX_DOUBLINGS)), $LOCK_MAX_MINUTES)"
