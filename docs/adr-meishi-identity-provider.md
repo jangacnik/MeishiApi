@@ -122,7 +122,8 @@ everyone, and a 256-bit code cannot be guessed.
 - **No client secrets.** PKCE proves that the party redeeming a code started the flow. All clients are first party with
   fixed HTTPS redirect URIs, and a secret could not ship in an SPA anyway.
 - `/api/oauth/authorize` and `/api/oauth/token` each let in only the accounts that `POST /api/auth/login` lets in: the
-  user exists, is `ACTIVE` and is not locked. A frozen, locked or deleted user gets no code and no token.
+  user exists, has activated the account, is `ACTIVE` and is not locked. A frozen, locked, never-activated or deleted
+  user gets no code and no token. `/api/oauth/authorize` is also limited to 30 requests per minute per user.
 - Tokens are still not revocable and still work across apps. Both are true today and are unchanged here.
 
 ### Accepted tradeoffs
@@ -163,11 +164,25 @@ Each step is independently deployable and reversible, and `POST /api/auth/login`
 3. Make the login rate limit per client before any app moves. Today meishifrontend's nginx sets `X-Forwarded-For` to
    its `$remote_addr`, which is the edge proxy or a node after NodePort SNAT, and `CLIENT_IP_HEADER` is unset, so
    `LoginRateLimiter` keys on that address. Once every app logs in through meishifrontend, all users of all apps would
-   share one 10-attempts-per-minute bucket. Fix: meishifrontend's nginx takes the client address from `X-Real-IP`,
-   which the edge proxy sets, and trusts it only from private ranges (`set_real_ip_from` 10.0.0.0/8, 172.16.0.0/12,
-   192.168.0.0/16, `real_ip_header X-Real-IP`). Then `CLIENT_IP_HEADER=X-Forwarded-For` is set on meishi-api.
-   MeishiApi uses the last `X-Forwarded-For` entry, which its own proxy wrote, so a client cannot choose it. Keying the
-   limit per nickname was rejected because anyone could then throttle a chosen user.
+   share one 10-attempts-per-minute bucket. Keying the limit per nickname was rejected because anyone could then
+   throttle a chosen user. The fix has three parts, in this order:
+   1. The meishifrontend Service uses `externalTrafficPolicy: Local`, so the pod sees the real peer instead of a node
+      address after SNAT. Its nginx trusts `X-Real-IP` only from the edge proxy's own address (`set_real_ip_from
+      192.168.0.22/32`, `real_ip_header X-Real-IP`). Trusting private ranges is not enough, because with SNAT any LAN
+      host or pod would look like a trusted peer. With `Local`, only nodes that run a meishifrontend pod answer on the
+      NodePort, so the edge proxy must forward to such a node. Before relying on the header, confirm two things: the
+      edge proxy overwrites a client-sent `X-Real-IP`, and its `$remote_addr` is the real client, not a TCP relay in
+      front of it.
+   2. meishi-api stops being reachable from outside the cluster. Today it is a NodePort (30081), published by the edge
+      proxy as `meishi-api.gacnikhome.duckdns.org`. Once `CLIENT_IP_HEADER` is set, anyone who can reach it directly
+      can send any `X-Forwarded-For` and get unlimited login attempts. The Service becomes `ClusterIP` and its edge
+      proxy host is removed. omiyage-api already calls it by cluster DNS (`MEISHI_API_URL` is a `*.svc.cluster.local`
+      address), but any other caller of the public host, such as tcg-reader, must move to meishifrontend's `/api/` or
+      cluster DNS first. A NetworkPolicy is not an alternative here: the cluster CNI is flannel, which does not
+      enforce NetworkPolicy.
+   3. `CLIENT_IP_HEADER=X-Forwarded-For` is set on meishi-api. MeishiApi uses the last `X-Forwarded-For` entry, which
+      meishifrontend's nginx wrote from the trusted `X-Real-IP`. A client can choose that entry only through an
+      untrusted path, and steps 1 and 2 close those paths.
 4. Omiyage adds "Continue with Meishi" next to the existing form, then links profile pages to Meishi.
 5. tcg-reader does the same.
 6. Once both are stable, apps remove their password forms and profile proxy routes. Tokens already issued stay valid
@@ -194,7 +209,8 @@ routes go away in step 6.
 that checks `state`, calls the token endpoint, runs `verifyMeishiToken` and sets `tcg_reader_session`. Remove the form
 and `/api/auth/login` in step 6.
 
-**homelab-gitops**: add `CLIENT_IP_HEADER=X-Forwarded-For` (step 3) and `OAUTH_CLIENTS` to the `meishi-api`
+**homelab-gitops**: set `externalTrafficPolicy: Local` on `meishifrontend`, make `meishi-api` a `ClusterIP` Service, then
+add `CLIENT_IP_HEADER=X-Forwarded-For` (all step 3) and `OAUTH_CLIENTS` to the `meishi-api`
 deployment.
 
 ## Consequences
