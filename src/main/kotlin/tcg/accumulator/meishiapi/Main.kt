@@ -14,8 +14,8 @@ private val log = LoggerFactory.getLogger("tcg.accumulator.meishiapi.Main")
 fun main() {
     val config = AppConfig.fromEnv()
     log.debug(
-        "resolved config: httpPort={} dbHost={} dbPort={} dbName={} dbUser={} adminNickname={}",
-        config.httpPort, config.dbHost, config.dbPort, config.dbName, config.dbUser, config.adminNickname,
+        "resolved config: httpPort={} dbHost={} dbPort={} dbName={} dbUser={}",
+        config.httpPort, config.dbHost, config.dbPort, config.dbName, config.dbUser,
     )
 
     try {
