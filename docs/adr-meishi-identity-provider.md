@@ -17,9 +17,12 @@ sessions, JWT format and `JWT_SECRET` do not change, and every existing login ke
   every request. There is no CORS, so browsers reach it through a same-origin proxy.
 - **meishifrontend** is a Vue SPA. Its nginx proxies `/api/` to MeishiApi. The token lives in `localStorage`
   (`meishi.token`). It has login, activation-key registration, the account page and the admin user list. CSP is strict
-  (`frame-ancestors 'none'`, `Referrer-Policy: no-referrer`).
+  (`frame-ancestors 'none'`, `Referrer-Policy: no-referrer`). It is public at `https://meishi.gacnikhome.duckdns.org`:
+  the edge proxy (Nginx Proxy Manager) forwards to NodePort 30084. `homelab-gitops` has no Ingress for it, so that
+  route lives only in the edge proxy. The hosted flow depends on this host staying public.
 - **omiyage-api** collects passwords for Meishi:
-  - `MeishiAuthClient` proxies `POST /api/auth/login` and calls `GET /api/users/me` to reject frozen accounts.
+  - `MeishiAuthClient` proxies `POST /api/auth/login`, which already rejects frozen and locked accounts. Its extra
+    `GET /api/users/me` call to reject frozen accounts is redundant.
   - `JwtVerifier` verifies the JWT locally with the shared secret. `AccountStatusChecker` re-checks status on writes.
   - `MeishiProfileClient` proxies profile, nickname and password changes, forwarding the user's bearer token.
   - `MeishiNicknameClient` and `MeishiAdminClient` forward the bearer token to `/api/users/nicknames` and `/api/users`.
@@ -118,7 +121,8 @@ everyone, and a 256-bit code cannot be guessed.
   only add state and a second thing to steal.
 - **No client secrets.** PKCE proves that the party redeeming a code started the flow. All clients are first party with
   fixed HTTPS redirect URIs, and a secret could not ship in an SPA anyway.
-- Status is re-checked at `/api/oauth/authorize` and at `/api/oauth/token`, so a frozen or deleted user gets nothing.
+- `/api/oauth/authorize` and `/api/oauth/token` each let in only the accounts that `POST /api/auth/login` lets in: the
+  user exists, is `ACTIVE` and is not locked. A frozen, locked or deleted user gets no code and no token.
 - Tokens are still not revocable and still work across apps. Both are true today and are unchanged here.
 
 ### Accepted tradeoffs
@@ -156,11 +160,19 @@ Each step is independently deployable and reversible, and `POST /api/auth/login`
 
 1. Ship MeishiApi and meishifrontend changes. With `OAUTH_CLIENTS` unset, nothing changes.
 2. Add `OAUTH_CLIENTS` for Omiyage in `homelab-gitops`.
-3. Omiyage adds "Continue with Meishi" next to the existing form, then links profile pages to Meishi.
-4. tcg-reader does the same.
-5. Once both are stable, apps remove their password forms and profile proxy routes. Tokens already issued stay valid
+3. Make the login rate limit per client before any app moves. Today meishifrontend's nginx sets `X-Forwarded-For` to
+   its `$remote_addr`, which is the edge proxy or a node after NodePort SNAT, and `CLIENT_IP_HEADER` is unset, so
+   `LoginRateLimiter` keys on that address. Once every app logs in through meishifrontend, all users of all apps would
+   share one 10-attempts-per-minute bucket. Fix: meishifrontend's nginx takes the client address from `X-Real-IP`,
+   which the edge proxy sets, and trusts it only from private ranges (`set_real_ip_from` 10.0.0.0/8, 172.16.0.0/12,
+   192.168.0.0/16, `real_ip_header X-Real-IP`). Then `CLIENT_IP_HEADER=X-Forwarded-For` is set on meishi-api.
+   MeishiApi uses the last `X-Forwarded-For` entry, which its own proxy wrote, so a client cannot choose it. Keying the
+   limit per nickname was rejected because anyone could then throttle a chosen user.
+4. Omiyage adds "Continue with Meishi" next to the existing form, then links profile pages to Meishi.
+5. tcg-reader does the same.
+6. Once both are stable, apps remove their password forms and profile proxy routes. Tokens already issued stay valid
    until they expire.
-6. Later, restrict `POST /api/auth/login` to meishifrontend. This is a separate decision, not part of this work.
+7. Later, restrict `POST /api/auth/login` to meishifrontend. This is a separate decision, not part of this work.
 
 ## What each consumer changes
 
@@ -180,9 +192,10 @@ routes go away in step 5.
 
 **tcg-reader**: add a start route that sets httpOnly `state` and verifier cookies and redirects, and a callback route
 that checks `state`, calls the token endpoint, runs `verifyMeishiToken` and sets `tcg_reader_session`. Remove the form
-and `/api/auth/login` in step 5.
+and `/api/auth/login` in step 6.
 
-**homelab-gitops**: add `OAUTH_CLIENTS` to the `meishi-api` deployment.
+**homelab-gitops**: add `CLIENT_IP_HEADER=X-Forwarded-For` (step 3) and `OAUTH_CLIENTS` to the `meishi-api`
+deployment.
 
 ## Consequences
 
