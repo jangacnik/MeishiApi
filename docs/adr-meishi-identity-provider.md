@@ -179,9 +179,45 @@ Each step is independently deployable and reversible, and `POST /api/auth/login`
    3. Set `externalTrafficPolicy: Local` on the meishifrontend Service. Only nodes that run the pod answer on the
       NodePort, and the pod now sees the edge proxy (`192.168.0.22`) as its peer instead of a flannel address
       (`10.244.0.0` today). Check that the nginx access log shows client addresses.
-   4. Confirm that the internet path cannot set `X-Real-IP`. The edge proxy itself trusts `X-Real-IP` from CDN and
-      private ranges and also listens on IPv6, and the owner is testing whether a client can spoof it. Stop here until
-      that is settled.
+   4. Confirm that the internet path shows the visitor's real address and cannot set `X-Real-IP`.
+      **Status: FAILED (2026-11-03).** The owner tested from mobile data over IPv6, with two results:
+      - The edge proxy's `$remote_addr` for an internet visitor is `192.168.0.128`, the Proxmox host. A forwarder on
+        the PVE host passes IPv6 traffic to the edge proxy over IPv4 and hides the visitor's address.
+      - A request sent with `X-Real-IP: 9.9.9.9` came back as `9.9.9.9`. The edge proxy trusts `X-Real-IP` from
+        `192.168.0.0/16` and about 272 CDN ranges, so an outside visitor can choose the address it passes on.
+
+      A stopgap on the edge proxy's Meishi host overrides `real_ip_header`, so a client-sent `X-Real-IP` is ignored.
+      Every visitor then looks like `192.168.0.128`, which is still one shared bucket.
+
+      Prerequisite before this step can pass: the forwarder on the PVE host must preserve the visitor's address,
+      for example by forwarding at layer 3 instead of proxying, or by sending PROXY protocol that the edge proxy
+      accepts. The edge proxy must also take the client address only from that forwarder, never from a header the
+      client sent.
+
+      Test from outside the LAN, for example on mobile data, over both IPv4 and IPv6. Add a temporary location to
+      meishifrontend's nginx:
+
+      ```nginx
+      location = /debug-ip {
+          default_type text/plain;
+          return 200 "remote_addr=$remote_addr x_real_ip=$http_x_real_ip x_forwarded_for=$http_x_forwarded_for\n";
+      }
+      ```
+
+      ```sh
+      curl -s https://meishi.gacnikhome.duckdns.org/debug-ip
+      curl -s -H 'X-Real-IP: 9.9.9.9' -H 'X-Forwarded-For: 9.9.9.9' https://meishi.gacnikhome.duckdns.org/debug-ip
+      curl -s -4 https://meishi.gacnikhome.duckdns.org/debug-ip
+      curl -s -6 https://meishi.gacnikhome.duckdns.org/debug-ip
+      ```
+
+      The step passes only if two things hold. Every call shows the visitor's own public address in `remote_addr`,
+      not `192.168.0.x` or `10.244.x.x`. The spoofed call shows the same address, not `9.9.9.9`. Remove the
+      location afterwards.
+
+      **Until this step passes, `CLIENT_IP_HEADER` must stay unset and steps 5 and 6 are blocked.** With it unset,
+      MeishiApi keys the login limit on the proxy address. That is the shared-bucket problem, but no visitor can
+      choose their own bucket.
    5. Make meishi-api unreachable from outside the cluster. Today it is a NodePort (30081), published by the edge
       proxy as `meishi-api.gacnikhome.duckdns.org`. Anyone who reaches it directly could send any `X-Forwarded-For`
       once the next step is done. The Service becomes `ClusterIP` and its edge proxy host is removed. omiyage-api
@@ -189,7 +225,7 @@ Each step is independently deployable and reversible, and `POST /api/auth/login`
       public host, such as tcg-reader, must move to meishifrontend's `/api/` or to cluster DNS first. A
       NetworkPolicy is no alternative: the CNI is flannel, which does not enforce NetworkPolicy.
    6. Set `CLIENT_IP_HEADER=X-Forwarded-For` on meishi-api. MeishiApi uses the last entry, which meishifrontend's
-      nginx wrote from the trusted `X-Real-IP`.
+      nginx wrote from the trusted `X-Real-IP`. **Blocked until step 4 passes.**
 
    Rollback runs in reverse order: unset `CLIENT_IP_HEADER`, restore the meishi-api NodePort and edge host if needed,
    set the Service back to `externalTrafficPolicy: Cluster`, remove the pin, then point the edge proxy at any node
