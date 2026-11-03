@@ -34,8 +34,8 @@ fun buildRouter(
     jwt: JwtService,
     loginRateLimiter: LoginRateLimiter = LoginRateLimiter(DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE),
     clientIpHeader: String? = null,
-    readinessCheck: suspend () -> Unit = {},
     oauthClients: List<OAuthClient> = emptyList(),
+    readinessCheck: suspend () -> Unit = {},
 ): Router {
     val router = Router.router(vertx)
     router.route().handler(::logRequest)
