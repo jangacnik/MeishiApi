@@ -56,7 +56,7 @@ class OAuthHandler(
         val user = ctx.user() ?: raise(AppError.Unauthorized("unauthorized"))
         val userId = jwt.subjectOf(user.principal()) ?: raise(AppError.Unauthorized("unauthorized"))
         if (!canSignIn(repository.findAuthRecordById(userId))) raise(AppError.Unauthorized("unauthorized"))
-        val sessionExpiry = user.principal().getLong("exp") ?: raise(AppError.Unauthorized("unauthorized"))
+        val sessionExpiry = user.attributes().getLong("exp") ?: raise(AppError.Unauthorized("unauthorized"))
         val sessionExpiresAt = Instant.ofEpochSecond(sessionExpiry).atOffset(ZoneOffset.UTC)
 
         val code = newAuthorizationCode()
