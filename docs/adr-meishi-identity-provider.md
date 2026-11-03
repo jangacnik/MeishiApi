@@ -188,7 +188,7 @@ Logout clears the local token, then goes to Meishi `/logout`.
 `POST /api/oauth/token`, keeps the existing frozen check and returns `{token}` like today. This keeps the rule that
 browsers talk only to omiyage-api, so MeishiApi needs no CORS. `JwtVerifier`, `AccountStatusChecker`,
 `MeishiNicknameClient` and `MeishiAdminClient` stay. `MeishiAuthClient.login` and the mutating `MeishiProfileClient`
-routes go away in step 5.
+routes go away in step 6.
 
 **tcg-reader**: add a start route that sets httpOnly `state` and verifier cookies and redirects, and a callback route
 that checks `state`, calls the token endpoint, runs `verifyMeishiToken` and sets `tcg_reader_session`. Remove the form
