@@ -3,6 +3,7 @@ package tcg.accumulator.meishiapi.http
 import arrow.core.raise.Raise
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
+import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.OAuthClient
@@ -30,7 +31,7 @@ class OAuthHandler(
     private val jwt: JwtService,
     clients: List<OAuthClient>,
 ) {
-    private val log = LoggerFactory.getLogger(OAuthHandler::class.java)
+    private val security = LoggerFactory.getLogger(SECURITY_LOGGER)
     private val clientsById = clients.associateBy { it.id }
 
     fun client(ctx: RoutingContext) = respond(ctx) {
@@ -65,7 +66,7 @@ class OAuthHandler(
             AuthorizationGrant(client.id, redirectUri, userId, challenge, sessionExpiresAt),
             CODE_TTL_SECONDS,
         )
-        log.info("issued authorization code for user {} to client {}", userId, client.id)
+        security.info("oauth_code_issued {} {}", kv("userId", userId), kv("clientId", client.id))
         JsonResult(JsonObject().put("redirectUrl", redirectUrl(redirectUri, code, state)))
     }
 
@@ -82,7 +83,7 @@ class OAuthHandler(
             grant.redirectUri == form.get("redirect_uri") &&
             pkceMatches(form.get("code_verifier"), grant.codeChallenge)
         if (!exchangeMatches) {
-            log.warn("rejected authorization code for user {}: client, redirect uri or verifier mismatch", grant.userId)
+            security.warn("oauth_code_rejected {} {}", kv("userId", grant.userId), kv("reason", "client_redirect_or_verifier_mismatch"))
             raise(AppError.BadRequest(INVALID_GRANT))
         }
 
@@ -92,7 +93,7 @@ class OAuthHandler(
         val lifetimeSeconds = grant.sessionExpiresAt.toEpochSecond() - OffsetDateTime.now().toEpochSecond()
         if (lifetimeSeconds <= 0) raise(AppError.BadRequest(INVALID_GRANT))
 
-        log.info("exchanged authorization code for user {} at client {}", record.id, grant.clientId)
+        security.info("oauth_token_issued {} {}", kv("userId", record.id), kv("clientId", grant.clientId))
         JsonResult(
             JsonObject()
                 .put("access_token", jwt.generateToken(record.id, nickname, record.role, lifetimeSeconds.toInt()))
