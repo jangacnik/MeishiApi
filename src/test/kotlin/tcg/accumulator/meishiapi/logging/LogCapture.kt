@@ -6,10 +6,12 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import org.slf4j.LoggerFactory
 
-/** Captures every log event in memory at TRACE, so tests see lines that production levels would hide. */
+/**
+ * Captures log events in memory, with our own loggers at TRACE so tests see lines that `LOG_LEVEL` could enable.
+ * Library loggers keep their configured level, as in production.
+ */
 class LogCapture : AutoCloseable {
-    private val loggerNames = listOf(Logger.ROOT_LOGGER_NAME, "tcg.accumulator.meishiapi", "access", "security")
-    private val loggers = loggerNames.map { LoggerFactory.getLogger(it) as Logger }
+    private val loggers = listOf("tcg.accumulator.meishiapi", "access", "security").map { LoggerFactory.getLogger(it) as Logger }
     private val previousLevels = loggers.map { it.level }
     private val appender = object : ListAppender<ILoggingEvent>() {
         // Freezes the MDC and message now: logback otherwise reads them lazily, from whatever thread asks later.
@@ -18,7 +20,7 @@ class LogCapture : AutoCloseable {
             super.append(event)
         }
     }.apply { start() }
-    private val root = loggers.first()
+    private val root = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME) as Logger
 
     init {
         loggers.forEach { it.level = Level.TRACE }

@@ -87,7 +87,8 @@ class LogCanaryTest {
             val logged = logs.renderAll()
             assertTrue(logs.events.any { it.formattedMessage.startsWith("login_failed") }, "expected security events in:\n$logged")
             assertTrue(logs.events.count { it.loggerName == "access" } >= 15, "expected access lines in:\n$logged")
-            canaries.forEach { canary -> assertTrue(canary !in logged, "'$canary' was logged:\n$logged") }
+            val leaks = logs.events.map { "${it.loggerName}: ${logs.render(it)}" }.filter { line -> canaries.any { it in line } }
+            assertTrue(leaks.isEmpty(), "canary values were logged:\n${leaks.joinToString("\n")}")
         }
     }
 }
