@@ -12,6 +12,7 @@ import io.vertx.sqlclient.Tuple
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.http.AppError
+import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User
@@ -302,6 +303,38 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
             return result
         } finally {
             conn.close().coAwait()
+        }
+    }
+
+    override suspend fun saveAuthorizationCode(codeHash: String, grant: AuthorizationGrant, ttlSeconds: Int) {
+        pool.query("DELETE FROM oauth_authorization_codes WHERE expires_at <= now()").execute().coAwait()
+        pool.preparedQuery(
+            "INSERT INTO oauth_authorization_codes " +
+                "(code_hash, client_id, redirect_uri, user_id, code_challenge, session_expires_at, expires_at) " +
+                "VALUES ($1, $2, $3, $4, $5, $6, now() + $7::int * interval '1 second')",
+        ).execute(
+            Tuple.from(
+                listOf(
+                    codeHash, grant.clientId, grant.redirectUri, grant.userId, grant.codeChallenge,
+                    grant.sessionExpiresAt, ttlSeconds,
+                ),
+            ),
+        ).coAwait()
+    }
+
+    override suspend fun consumeAuthorizationCode(codeHash: String): AuthorizationGrant? {
+        val rows = pool.preparedQuery(
+            "DELETE FROM oauth_authorization_codes WHERE code_hash = $1 AND expires_at > now() " +
+                "RETURNING client_id, redirect_uri, user_id, code_challenge, session_expires_at",
+        ).execute(Tuple.of(codeHash)).coAwait()
+        return rows.firstOrNull()?.let {
+            AuthorizationGrant(
+                clientId = it.getString("client_id"),
+                redirectUri = it.getString("redirect_uri"),
+                userId = it.getUUID("user_id"),
+                codeChallenge = it.getString("code_challenge"),
+                sessionExpiresAt = it.getOffsetDateTime("session_expires_at"),
+            )
         }
     }
 

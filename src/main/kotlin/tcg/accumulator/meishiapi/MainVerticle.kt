@@ -39,7 +39,9 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
             val router = buildRouter(
                 vertx, repository, hasher, jwt,
                 LoginRateLimiter(config.loginAttemptsPerMinute), config.clientIpHeader,
-            ) { pool.query("SELECT 1").execute().coAwait() }
+                readinessCheck = { pool.query("SELECT 1").execute().coAwait() },
+                oauthClients = config.oauthClients,
+            )
             log.trace("router built")
 
             vertx.createHttpServer(HttpServerOptions().setTracingPolicy(TracingPolicy.ALWAYS))

@@ -2,6 +2,7 @@ package tcg.accumulator.meishiapi.repository
 
 import arrow.core.Either
 import tcg.accumulator.meishiapi.http.AppError
+import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User
@@ -73,4 +74,10 @@ interface UserRepository {
 
     /** Self-service: user withdraws a pending deletion request. */
     suspend fun cancelDeletionRequest(id: UUID): Boolean
+
+    /** Stores a code by its hash for [ttlSeconds] and clears out expired ones. */
+    suspend fun saveAuthorizationCode(codeHash: String, grant: AuthorizationGrant, ttlSeconds: Int)
+
+    /** Atomically removes an unexpired code and returns its grant, so a code can be redeemed only once. */
+    suspend fun consumeAuthorizationCode(codeHash: String): AuthorizationGrant?
 }
