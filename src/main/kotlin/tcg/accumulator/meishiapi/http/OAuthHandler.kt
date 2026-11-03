@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.model.Status
+import tcg.accumulator.meishiapi.repository.AuthRecord
 import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.hashAuthorizationCode
@@ -54,6 +55,7 @@ class OAuthHandler(
 
         val user = ctx.user() ?: raise(AppError.Unauthorized("unauthorized"))
         val userId = jwt.subjectOf(user.principal()) ?: raise(AppError.Unauthorized("unauthorized"))
+        if (!canSignIn(repository.findAuthRecordById(userId))) raise(AppError.Unauthorized("unauthorized"))
         val sessionExpiry = user.principal().getLong("exp") ?: raise(AppError.Unauthorized("unauthorized"))
         val sessionExpiresAt = Instant.ofEpochSecond(sessionExpiry).atOffset(ZoneOffset.UTC)
 
@@ -84,7 +86,7 @@ class OAuthHandler(
             raise(AppError.BadRequest(INVALID_GRANT))
         }
 
-        val record = repository.findAuthRecordById(grant.userId)?.takeIf { it.status == Status.ACTIVE }
+        val record = repository.findAuthRecordById(grant.userId)?.takeIf(::canSignIn)
             ?: raise(AppError.BadRequest(INVALID_GRANT))
         val nickname = record.nickname ?: raise(AppError.BadRequest(INVALID_GRANT))
         val lifetimeSeconds = grant.sessionExpiresAt.toEpochSecond() - OffsetDateTime.now().toEpochSecond()
@@ -98,6 +100,10 @@ class OAuthHandler(
                 .put("expires_in", lifetimeSeconds),
         )
     }
+
+    /** The same accounts that `POST /api/auth/login` lets in: they exist, are active and are not locked. */
+    private fun canSignIn(record: AuthRecord?): Boolean =
+        record != null && record.status == Status.ACTIVE && !record.isLocked
 
     private fun Raise<AppError>.registeredClient(id: String?): OAuthClient =
         id?.let { clientsById[it] } ?: raise(AppError.BadRequest("invalid_client"))

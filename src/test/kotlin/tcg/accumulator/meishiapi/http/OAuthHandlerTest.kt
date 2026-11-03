@@ -18,6 +18,7 @@ import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.repository.FakeUserRepository
 import tcg.accumulator.meishiapi.security.JwtService
+import tcg.accumulator.meishiapi.security.LOCK_AFTER_FAILED_ATTEMPTS
 import tcg.accumulator.meishiapi.security.PasswordHasher
 import tcg.accumulator.meishiapi.security.hashAuthorizationCode
 import java.net.URI
@@ -188,6 +189,17 @@ class OAuthHandlerTest {
 
         h.repo.updateStatus(adminId, h.userId, Status.FROZEN)
         assertEquals(401, authorize(h).statusCode())
+    }
+
+    @Test
+    fun `a locked account cannot authorize or redeem a code`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val code = issueCode(h)
+
+        repeat(LOCK_AFTER_FAILED_ATTEMPTS) { h.repo.registerFailedLoginAttempt(h.userId) }
+
+        assertEquals(401, authorize(h).statusCode())
+        assertRejected(exchange(h, tokenForm(code)), 400, "invalid_grant")
     }
 
     @Test
