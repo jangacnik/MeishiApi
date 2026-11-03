@@ -19,6 +19,7 @@ dependencies {
     implementation(platform("com.fasterxml.jackson:jackson-bom:2.22.4"))
     implementation("org.slf4j:slf4j-api:2.0.17")
     implementation("ch.qos.logback:logback-classic:1.5.38")
+    implementation("net.logstash.logback:logstash-logback-encoder:8.0")
     implementation("io.vertx:vertx-core:$vertxVersion")
     implementation("io.vertx:vertx-web:$vertxVersion")
     implementation("io.vertx:vertx-pg-client:$vertxVersion")
@@ -26,6 +27,7 @@ dependencies {
     implementation("io.vertx:vertx-lang-kotlin-coroutines:$vertxVersion")
     implementation("io.vertx:vertx-opentelemetry:$vertxVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:1.11.0")
 
     implementation("org.flywaydb:flyway-core:$flywayVersion")
     implementation("org.flywaydb:flyway-database-postgresql:$flywayVersion")

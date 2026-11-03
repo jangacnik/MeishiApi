@@ -3,6 +3,8 @@ package tcg.accumulator.meishiapi
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class AppConfigTest {
     private val valid = mapOf(
@@ -71,5 +73,22 @@ class AppConfigTest {
     @Test
     fun `migration user without password fails`() {
         assertFailsWith<IllegalStateException> { load(valid + ("DB_MIGRATION_USER" to "migrator")) }
+    }
+
+    @Test
+    fun `toString leaves out every password and secret`() {
+        val config = testConfig().copy(
+            dbPassword = "db-secret-canary",
+            migrationPassword = "migration-secret-canary",
+            jwtSecret = "jwt-secret-canary-with-at-least-32-bytes",
+            adminPassword = "admin-secret-canary",
+        )
+
+        val text = config.toString()
+
+        listOf("db-secret-canary", "migration-secret-canary", "jwt-secret-canary", "admin-secret-canary").forEach {
+            assertFalse(it in text, "$it in $text")
+        }
+        assertTrue("dbHost=localhost" in text)
     }
 }

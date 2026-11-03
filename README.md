@@ -38,6 +38,26 @@ Handler tests use an in-memory repository; there are no database-backed tests ye
 | `LOG_LEVEL` | `INFO` | level of the `tcg.accumulator.meishiapi` loggers |
 | `OTEL_TRACES_EXPORTER` | `none` | e.g. `logging` |
 
+## Logging
+
+Logs are one JSON object per line (logstash encoder). Every line written while handling a request carries `requestId`
+in the MDC: the caller's `X-Request-Id` when it matches `[A-Za-z0-9-]{1,64}`, otherwise a new UUID, echoed in the
+response header.
+
+- `access`: one line per request with `method`, `route` (the registered template such as `/api/users/:id`, or
+  `unmatched`; never the query string), `status`, `durationMs`, `userId` (or `anonymous`) and `role`. 5xx is `ERROR`,
+  401/403/429 `WARN`, health checks `DEBUG`, the rest `INFO`.
+- `security`: `login_succeeded`, `login_failed` (`reason`, `userId` or `nicknameHash`, `clientIp`), `account_locked`,
+  `login_blocked`, `login_rate_limited`, `registered`, `registration_failed`, `password_changed`,
+  `password_change_failed`.
+- Admin mutations log `admin_action` (`actorId`, `action`, `targetId`), matching the `admin_audit_log` row.
+
+Never logged: passwords, tokens, activation keys, secrets, request and response bodies, query strings, headers,
+nicknames as typed, email, phone, names, addresses, Discord names. People are identified by user id. An unknown login
+name is logged only as `nicknameHash` (first 8 hex chars of SHA-256 of the lower-cased name). Client IPs appear only in
+security events. Exceptions are logged as class plus our first stack frame, without their message. `AppConfig.toString()`
+omits every secret. `LogCanaryTest` fails if any of this leaks.
+
 ## Conventions
 
 - Errors are `{"error": "<message>"}` with the HTTP status; messages are fixed strings.
