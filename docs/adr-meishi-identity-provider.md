@@ -170,11 +170,12 @@ Each step is independently deployable and reversible, and `POST /api/auth/login`
    `X-Forwarded-For` while `CLIENT_IP_HEADER` is unset. The infrastructure steps go in `homelab-gitops` and the edge
    proxy, one at a time, each checked before the next:
 
-   1. Pin the meishifrontend Deployment to one node (`nodeSelector: kubernetes.io/hostname: k8s-node-2`). This is a
-      single point of failure: if that node is down, Meishi is down until the pin moves. With one replica the pod
-      already lives on one node, but today Kubernetes can reschedule it elsewhere.
-   2. Point the edge proxy's Meishi host at that node (`192.168.0.24:30084`; today it is k8s-ctrl, `192.168.0.20`).
-      This works with the current policy, so check the site before going on.
+   1. Point the edge proxy's Meishi host at the node that runs the meishifrontend pod (`192.168.0.24:30084`,
+      k8s-node-2; today it is k8s-ctrl, `192.168.0.20`). This works with the current policy, so check the site
+      before going on.
+   2. Pin the meishifrontend Deployment to that node (`nodeSelector: kubernetes.io/hostname: k8s-node-2`). This is a
+      single point of failure: if that node is down, Meishi is down until the pin and the upstream move. With one
+      replica the pod already lives on one node, but today Kubernetes can reschedule it elsewhere.
    3. Set `externalTrafficPolicy: Local` on the meishifrontend Service. Only nodes that run the pod answer on the
       NodePort, and the pod now sees the edge proxy (`192.168.0.22`) as its peer instead of a flannel address
       (`10.244.0.0` today). Check that the nginx access log shows client addresses.
@@ -191,13 +192,12 @@ Each step is independently deployable and reversible, and `POST /api/auth/login`
       nginx wrote from the trusted `X-Real-IP`.
 
    Rollback runs in reverse order: unset `CLIENT_IP_HEADER`, restore the meishi-api NodePort and edge host if needed,
-   set the Service back to `externalTrafficPolicy: Cluster`, point the edge proxy at any node again, then remove the
-   pin. Each step on its own leaves Meishi working, because the code falls back to today's behaviour while the header
+   set the Service back to `externalTrafficPolicy: Cluster`, remove the pin, then point the edge proxy at any node
+   again. Each step on its own leaves Meishi working, because the code falls back to today's behaviour while the header
    is not trusted.
 
-   Rejected alternative: keep the `Cluster` policy and trust the flannel range. With SNAT every request, including
-   one sent straight to any node's NodePort from the LAN, arrives from a `10.244.x.0` address, so anyone on the LAN
-   or in a pod could choose their bucket.
+   `set_real_ip_from` lists only the edge proxy address. Trusting node or pod ranges instead was rejected because it
+   trusts every pod.
 4. Omiyage adds "Continue with Meishi" next to the existing form, then links profile pages to Meishi.
 5. tcg-reader does the same.
 6. Once both are stable, apps remove their password forms and profile proxy routes. Tokens already issued stay valid
