@@ -131,6 +131,84 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: Account frozen after repeated failures }
         '413': { $ref: '#/components/responses/TooLarge' }
+  /api/oauth/client:
+    get:
+      summary: Check that a client and URI are registered before starting a hosted flow
+      parameters:
+        - { name: client_id, in: query, required: true, schema: { type: string } }
+        - { name: redirect_uri, in: query, required: false, schema: { type: string } }
+        - { name: return_uri, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Registered client
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [clientId, name]
+                properties:
+                  clientId: { type: string }
+                  name: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/oauth/authorize:
+    post:
+      summary: Issue a single-use authorization code for the logged-in user
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [response_type, client_id, redirect_uri, state, code_challenge, code_challenge_method]
+              properties:
+                response_type: { type: string, enum: [code] }
+                client_id: { type: string }
+                redirect_uri: { type: string }
+                state: { type: string, minLength: 1, maxLength: 512 }
+                code_challenge: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+                code_challenge_method: { type: string, enum: [S256] }
+      responses:
+        '200':
+          description: Where to send the browser
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [redirectUrl]
+                properties:
+                  redirectUrl: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/oauth/token:
+    post:
+      summary: Exchange an authorization code for a Meishi JWT
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, code, redirect_uri, client_id, code_verifier]
+              properties:
+                grant_type: { type: string, enum: [authorization_code] }
+                code: { type: string }
+                redirect_uri: { type: string }
+                client_id: { type: string }
+                code_verifier: { type: string }
+      responses:
+        '200':
+          description: Token, sent with Cache-Control no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token, token_type, expires_in]
+                properties:
+                  access_token: { type: string }
+                  token_type: { type: string, enum: [Bearer] }
+                  expires_in: { type: integer, description: Seconds left of the authorizing session }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /api/users/me:
     get:
       summary: Own record

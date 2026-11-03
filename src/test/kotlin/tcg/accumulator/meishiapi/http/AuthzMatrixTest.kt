@@ -27,6 +27,8 @@ class AuthzMatrixTest {
         HttpMethod.GET to "/health/ready",
         HttpMethod.POST to "/api/auth/register",
         HttpMethod.POST to "/api/auth/login",
+        HttpMethod.GET to "/api/oauth/client",
+        HttpMethod.POST to "/api/oauth/token",
     )
 
     private val memberRoutes = listOf(
@@ -37,6 +39,7 @@ class AuthzMatrixTest {
         HttpMethod.POST to "/api/users/me/request-deletion",
         HttpMethod.DELETE to "/api/users/me/request-deletion",
         HttpMethod.GET to "/api/users/nicknames",
+        HttpMethod.POST to "/api/oauth/authorize",
     )
 
     private val adminRoutes = listOf(

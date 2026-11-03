@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import tcg.accumulator.meishiapi.http.AppError
+import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import java.time.Duration
@@ -62,7 +63,7 @@ class PgUserRepositoryTest {
 
     @Test
     fun `all migrations apply to an empty database`() {
-        assertEquals(9, PostgresTestSupport.migrationCount())
+        assertEquals(10, PostgresTestSupport.migrationCount())
     }
 
     @Test
@@ -317,5 +318,57 @@ class PgUserRepositoryTest {
         repo.requestDeletion(pending)
 
         assertEquals(listOf(pending), repo.listAll(pendingDeletionOnly = true).map { it.id })
+    }
+
+    private fun grantFor(userId: UUID) = AuthorizationGrant(
+        clientId = "omiyage",
+        redirectUri = "https://omiyage.example/auth/callback",
+        userId = userId,
+        codeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        sessionExpiresAt = OffsetDateTime.parse("2030-01-02T03:04:05Z"),
+    )
+
+    @Test
+    fun `an authorization code round-trips its grant exactly once`() = runBlocking {
+        val grant = grantFor(activatedUser("alice"))
+        repo.saveAuthorizationCode("hash", grant, 60)
+
+        val consumed = assertNotNull(repo.consumeAuthorizationCode("hash"))
+
+        assertEquals(grant.copy(sessionExpiresAt = consumed.sessionExpiresAt), consumed)
+        assertEquals(grant.sessionExpiresAt.toInstant(), consumed.sessionExpiresAt.toInstant())
+        assertNull(repo.consumeAuthorizationCode("hash"))
+    }
+
+    @Test
+    fun `concurrent redemptions of one authorization code yield a single winner`() = runBlocking {
+        repo.saveAuthorizationCode("hash", grantFor(activatedUser("alice")), 60)
+
+        val results = (1..8).map { async { repo.consumeAuthorizationCode("hash") } }.awaitAll()
+
+        assertEquals(1, results.count { it != null })
+    }
+
+    @Test
+    fun `an expired authorization code is not redeemable and is cleared by the next save`() = runBlocking {
+        val userId = activatedUser("alice")
+        repo.saveAuthorizationCode("expired", grantFor(userId), 0)
+
+        assertNull(repo.consumeAuthorizationCode("expired"))
+
+        repo.saveAuthorizationCode("fresh", grantFor(userId), 60)
+        val remaining = pool.query("SELECT code_hash FROM oauth_authorization_codes").execute().coAwait()
+        assertEquals(listOf("fresh"), remaining.map { it.getString("code_hash") })
+    }
+
+    @Test
+    fun `deleting a user removes their authorization codes`() = runBlocking {
+        val userId = activatedUser("alice")
+        val adminId = activatedUser("root", Role.ADMIN)
+        repo.saveAuthorizationCode("hash", grantFor(userId), 60)
+
+        repo.delete(adminId, userId).getOrThrow()
+
+        assertNull(repo.consumeAuthorizationCode("hash"))
     }
 }
