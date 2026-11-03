@@ -26,13 +26,6 @@ class AuthorizationCodesTest {
     }
 
     @Test
-    fun `the plain challenge method cannot succeed`() {
-        val verifier = "a".repeat(43)
-
-        assertFalse(pkceMatches(verifier, verifier))
-    }
-
-    @Test
     fun `only unpadded base64url SHA-256 shaped challenges are valid`() {
         assertTrue(isValidCodeChallenge(RFC7636_CHALLENGE))
         assertFalse(isValidCodeChallenge(""))

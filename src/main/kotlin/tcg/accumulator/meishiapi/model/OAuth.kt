@@ -7,6 +7,9 @@ import java.net.URISyntaxException
 import java.time.OffsetDateTime
 import java.util.UUID
 
+/** Matches `oauth_authorization_codes.client_id varchar(64)`. */
+private const val MAX_CLIENT_ID_LENGTH = 64
+
 data class OAuthClient(
     val id: String,
     val name: String,
@@ -31,6 +34,7 @@ fun parseOAuthClients(json: String): List<OAuthClient> {
 
 private fun parseClient(client: JsonObject): OAuthClient {
     val id = client.getString("id")?.takeIf { it.isNotBlank() } ?: error("OAUTH_CLIENTS entry has no id")
+    check(id.length <= MAX_CLIENT_ID_LENGTH) { "OAUTH_CLIENTS client id is longer than $MAX_CLIENT_ID_LENGTH characters" }
     val redirectUris = uriSet(client, "redirectUris")
     check(redirectUris.isNotEmpty()) { "OAUTH_CLIENTS client $id has no redirectUris" }
     return OAuthClient(

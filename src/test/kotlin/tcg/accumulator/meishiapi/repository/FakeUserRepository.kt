@@ -236,12 +236,14 @@ class FakeUserRepository : UserRepository {
         avatarKey, discordName, deletionRequestedAt,
     )
 
-    private val authorizationCodes = ConcurrentHashMap<String, AuthorizationGrant>()
+    private val authorizationCodes = ConcurrentHashMap<String, Pair<AuthorizationGrant, OffsetDateTime>>()
 
     override suspend fun saveAuthorizationCode(codeHash: String, grant: AuthorizationGrant, ttlSeconds: Int) {
-        authorizationCodes[codeHash] = grant
+        authorizationCodes[codeHash] = grant to OffsetDateTime.now().plusSeconds(ttlSeconds.toLong())
     }
 
     override suspend fun consumeAuthorizationCode(codeHash: String): AuthorizationGrant? =
-        authorizationCodes.remove(codeHash)
+        authorizationCodes.remove(codeHash)?.takeIf { (_, expiresAt) -> expiresAt.isAfter(OffsetDateTime.now()) }?.first
+
+    fun authorizationCodeExpiry(codeHash: String): OffsetDateTime? = authorizationCodes[codeHash]?.second
 }

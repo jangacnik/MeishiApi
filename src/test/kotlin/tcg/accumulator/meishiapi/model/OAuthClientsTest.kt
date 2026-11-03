@@ -67,6 +67,7 @@ class OAuthClientsTest {
             """[{"id":"x","redirectUris":["https://a.example/cb"]}]""",
             """[{"id":"x","name":"No uris"}]""",
             """[{"id":"x","name":"X","redirectUris":[]}]""",
+            """[{"id":"${"x".repeat(65)}","name":"X","redirectUris":["https://a.example/cb"]}]""",
             """[{"id":"x","name":"X","redirectUris":["https://a.example/cb"]},""" +
                 """{"id":"x","name":"Y","redirectUris":["https://b.example/cb"]}]""",
         ).forEach { json -> assertFails(json) { parseOAuthClients(json) } }

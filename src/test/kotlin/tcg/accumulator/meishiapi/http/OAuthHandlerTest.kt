@@ -29,6 +29,7 @@ import java.util.Base64
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 private const val CLIENT_ID = "omiyage"
@@ -246,6 +247,7 @@ class OAuthHandlerTest {
 
         assertEquals(200, response.statusCode())
         assertEquals("no-store", response.getHeader("Cache-Control"))
+        assertEquals("no-cache", response.getHeader("Pragma"))
         val body = response.bodyAsJsonObject()
         assertEquals("Bearer", body.getString("token_type"))
         val expiresIn = body.getLong("expires_in")
@@ -325,15 +327,50 @@ class OAuthHandlerTest {
     }
 
     @Test
-    fun `an account that was never activated gets no token`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+    fun `an account that was never activated can neither authorize nor redeem a code`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx)
         val (pendingId, _) = h.repo.create(Role.USER)
         val session = h.jwt.generateToken(pendingId, "pending", Role.USER, SESSION_SECONDS)
+        val grant = AuthorizationGrant(CLIENT_ID, REDIRECT_URI, pendingId, CHALLENGE, OffsetDateTime.now().plusMinutes(5))
+        h.repo.saveAuthorizationCode(hashAuthorizationCode("pending"), grant, 60)
 
-        val response = authorize(h, token = session)
-        val code = queryOf(response.bodyAsJsonObject().getString("redirectUrl")).getValue("code")
+        assertEquals(401, authorize(h, token = session).statusCode())
+        assertRejected(exchange(h, tokenForm("pending")), 400, "invalid_grant")
+    }
 
-        assertRejected(exchange(h, tokenForm(code)), 400, "invalid_grant")
+    @Test
+    fun `a code is stored for 60 seconds`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+
+        val code = issueCode(h)
+
+        val expiry = assertNotNull(h.repo.authorizationCodeExpiry(hashAuthorizationCode(code)))
+        val secondsLeft = java.time.Duration.between(OffsetDateTime.now(), expiry).seconds
+        assertTrue(secondsLeft in 55..60, "code expires in $secondsLeft s")
+    }
+
+    @Test
+    fun `an expired code gets no token`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        val grant = AuthorizationGrant(CLIENT_ID, REDIRECT_URI, h.userId, CHALLENGE, OffsetDateTime.now().plusMinutes(5))
+        h.repo.saveAuthorizationCode(hashAuthorizationCode("old"), grant, 0)
+
+        assertRejected(exchange(h, tokenForm("old")), 400, "invalid_grant")
+    }
+
+    @Test
+    fun `authorize is rate limited per user`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+        repeat(AUTHORIZE_REQUESTS_PER_MINUTE) { assertEquals(200, authorize(h).statusCode()) }
+
+        val limited = authorize(h)
+
+        assertEquals(429, limited.statusCode())
+        assertTrue(limited.getHeader("Retry-After").toLong() >= 1)
+        val (otherId, _) = h.repo.create(Role.USER)
+        h.repo.activate(otherId, "bob", "hash")
+        val otherSession = h.jwt.generateToken(otherId, "bob", Role.USER, SESSION_SECONDS)
+        assertEquals(200, authorize(h, token = otherSession).statusCode())
     }
 
     private suspend fun storeGrant(h: Harness, code: String, clientId: String, sessionExpiresAt: OffsetDateTime) {

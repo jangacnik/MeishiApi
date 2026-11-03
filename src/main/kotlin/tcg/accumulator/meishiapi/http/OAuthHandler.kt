@@ -21,6 +21,7 @@ import java.time.ZoneOffset
 
 private const val CODE_TTL_SECONDS = 60
 private const val MAX_STATE_LENGTH = 512
+const val AUTHORIZE_REQUESTS_PER_MINUTE = 30
 private const val INVALID_REQUEST = "invalid_request"
 private const val INVALID_GRANT = "invalid_grant"
 
@@ -29,6 +30,7 @@ class OAuthHandler(
     private val repository: UserRepository,
     private val jwt: JwtService,
     clients: List<OAuthClient>,
+    private val authorizeLimiter: LoginRateLimiter = LoginRateLimiter(AUTHORIZE_REQUESTS_PER_MINUTE),
 ) {
     private val log = LoggerFactory.getLogger(OAuthHandler::class.java)
     private val clientsById = clients.associateBy { it.id }
@@ -55,6 +57,8 @@ class OAuthHandler(
 
         val user = ctx.user() ?: raise(AppError.Unauthorized("unauthorized"))
         val userId = jwt.subjectOf(user.principal()) ?: raise(AppError.Unauthorized("unauthorized"))
+        val retryAfterSeconds = authorizeLimiter.tryAcquire(userId.toString())
+        if (retryAfterSeconds > 0) raise(AppError.TooManyRequests("too many requests", retryAfterSeconds))
         if (!canSignIn(repository.findAuthRecordById(userId))) raise(AppError.Unauthorized("unauthorized"))
         val sessionExpiry = user.attributes().getLong("exp") ?: raise(AppError.Unauthorized("unauthorized"))
         val sessionExpiresAt = Instant.ofEpochSecond(sessionExpiry).atOffset(ZoneOffset.UTC)
@@ -71,7 +75,7 @@ class OAuthHandler(
 
     /** The code is consumed before anything else is checked, so a failed exchange burns it. */
     fun token(ctx: RoutingContext) = respond(ctx) {
-        ctx.response().putHeader("Cache-Control", "no-store")
+        ctx.response().putHeader("Cache-Control", "no-store").putHeader("Pragma", "no-cache")
         val form = ctx.request().formAttributes()
         if (form.get("grant_type") != "authorization_code") raise(AppError.BadRequest("unsupported_grant_type"))
         val code = form.get("code") ?: raise(AppError.BadRequest(INVALID_GRANT))
@@ -101,9 +105,9 @@ class OAuthHandler(
         )
     }
 
-    /** The same accounts that `POST /api/auth/login` lets in: they exist, are active and are not locked. */
+    /** The same accounts that `POST /api/auth/login` lets in: they exist, are activated, active and not locked. */
     private fun canSignIn(record: AuthRecord?): Boolean =
-        record != null && record.status == Status.ACTIVE && !record.isLocked
+        record != null && record.activatedAt != null && record.status == Status.ACTIVE && !record.isLocked
 
     private fun Raise<AppError>.registeredClient(id: String?): OAuthClient =
         id?.let { clientsById[it] } ?: raise(AppError.BadRequest("invalid_client"))

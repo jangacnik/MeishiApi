@@ -7,3 +7,5 @@ CREATE TABLE oauth_authorization_codes (
     session_expires_at  timestamptz NOT NULL,
     expires_at          timestamptz NOT NULL
 );
+
+CREATE INDEX oauth_authorization_codes_expires_at_idx ON oauth_authorization_codes (expires_at);
