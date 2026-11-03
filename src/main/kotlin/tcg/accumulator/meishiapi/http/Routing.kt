@@ -13,6 +13,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.slf4j.LoggerFactory
+import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
@@ -33,6 +34,7 @@ fun buildRouter(
     jwt: JwtService,
     loginRateLimiter: LoginRateLimiter = LoginRateLimiter(DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE),
     clientIpHeader: String? = null,
+    oauthClients: List<OAuthClient> = emptyList(),
     readinessCheck: suspend () -> Unit = {},
 ): Router {
     val router = Router.router(vertx)
@@ -50,6 +52,11 @@ fun buildRouter(
 
     val users = UserHandler(repository, hasher, jwt)
     val jwtAuthHandler = JWTAuthHandler.create(jwt.auth)
+
+    val oauth = OAuthHandler(repository, jwt, oauthClients)
+    router.get("/api/oauth/client").handler(oauth::client)
+    router.post("/api/oauth/authorize").handler(jwtAuthHandler).handler(users::loadCaller).handler(oauth::authorize)
+    router.post("/api/oauth/token").handler(oauth::token)
 
     router.route("/api/users*").handler(jwtAuthHandler)
     router.route("/api/users*").handler(users::loadCaller)

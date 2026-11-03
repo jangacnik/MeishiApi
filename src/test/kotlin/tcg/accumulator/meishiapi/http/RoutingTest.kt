@@ -21,7 +21,7 @@ class RoutingTest {
     private suspend fun port(vertx: Vertx, clientIpHeader: String?, readinessCheck: suspend () -> Unit = {}): Int {
         val router = buildRouter(
             vertx, FakeUserRepository(), PasswordHasher(vertx), JwtService(vertx, "test-secret"),
-            LoginRateLimiter(1) { 0L }, clientIpHeader, readinessCheck,
+            LoginRateLimiter(1) { 0L }, clientIpHeader, readinessCheck = readinessCheck,
         )
         return vertx.createHttpServer().requestHandler(router).listen(0).coAwait().actualPort()
     }
