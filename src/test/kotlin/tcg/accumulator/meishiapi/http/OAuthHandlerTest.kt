@@ -172,7 +172,7 @@ class OAuthHandlerTest {
 
     @Test
     fun `with no clients registered the feature refuses everything`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
-        val h = harness(vertx, clients = emptyList())
+        val h = harness(vertx, clients = emptyList(), oauthEnabled = true)
 
         assertRejected(lookup(h, "client_id=$CLIENT_ID"), 400, "invalid_client")
         assertRejected(authorize(h), 400, "invalid_client")
