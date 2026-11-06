@@ -49,7 +49,9 @@ class MainVerticleTest {
                 assertNotNull(login.bodyAsJsonObject().getString("token"))
                 vertx.undeploy(deploymentId).coAwait()
                 stopped = true
-                val refused = assertFails { client.get(config.httpPort, "localhost", "/health/live").send().coAwait() }
+                val freshClient = WebClient.create(vertx)
+                val refused = assertFails { freshClient.get(config.httpPort, "localhost", "/health/live").send().coAwait() }
+                freshClient.close()
                 assertTrue(generateSequence(refused) { it.cause }.any { it is ConnectException })
             } finally {
                 if (!stopped) vertx.undeploy(deploymentId).coAwait()
