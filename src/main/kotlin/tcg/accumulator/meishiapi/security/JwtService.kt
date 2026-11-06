@@ -11,6 +11,8 @@ import tcg.accumulator.meishiapi.http.parseUuidOrNull
 import tcg.accumulator.meishiapi.model.Role
 import java.util.UUID
 
+private const val TOKEN_LIFETIME_SECONDS = 60 * 60 * 24
+
 class JwtService(vertx: Vertx, secret: String) {
 
     private val log = LoggerFactory.getLogger(JwtService::class.java)
@@ -24,13 +26,13 @@ class JwtService(vertx: Vertx, secret: String) {
         ),
     )
 
-    fun generateToken(id: UUID, nickname: String, role: Role): String {
+    fun generateToken(id: UUID, nickname: String, role: Role, expiresInSeconds: Int = TOKEN_LIFETIME_SECONDS): String {
         log.trace("generating token for user {} role {}", id, role)
         val claims = JsonObject()
             .put("sub", id.toString())
             .put("nickname", nickname)
             .put("role", role.name)
-        return auth.generateToken(claims, JWTOptions().setExpiresInMinutes(60 * 24))
+        return auth.generateToken(claims, JWTOptions().setExpiresInSeconds(expiresInSeconds))
     }
 
     fun roleOf(principal: JsonObject): Role? {

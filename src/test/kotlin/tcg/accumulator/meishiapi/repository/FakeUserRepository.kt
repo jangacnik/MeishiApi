@@ -3,6 +3,7 @@ package tcg.accumulator.meishiapi.repository
 import arrow.core.Either
 import arrow.core.raise.either
 import tcg.accumulator.meishiapi.http.AppError
+import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User
@@ -234,4 +235,15 @@ class FakeUserRepository : UserRepository {
         email, phone, firstName, lastName, addressLine1, addressLine2, postalCode, city, country,
         avatarKey, discordName, deletionRequestedAt,
     )
+
+    private val authorizationCodes = ConcurrentHashMap<String, Pair<AuthorizationGrant, OffsetDateTime>>()
+
+    override suspend fun saveAuthorizationCode(codeHash: String, grant: AuthorizationGrant, ttlSeconds: Int) {
+        authorizationCodes[codeHash] = grant to OffsetDateTime.now().plusSeconds(ttlSeconds.toLong())
+    }
+
+    override suspend fun consumeAuthorizationCode(codeHash: String): AuthorizationGrant? =
+        authorizationCodes.remove(codeHash)?.takeIf { (_, expiresAt) -> expiresAt.isAfter(OffsetDateTime.now()) }?.first
+
+    fun authorizationCodeExpiry(codeHash: String): OffsetDateTime? = authorizationCodes[codeHash]?.second
 }

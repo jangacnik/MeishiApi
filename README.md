@@ -35,6 +35,7 @@ Handler tests use an in-memory repository; there are no database-backed tests ye
 | `DB_POOL_SIZE` / `DB_CONNECT_TIMEOUT_MS` | `5` / `5000` | |
 | `DB_SSL_MODE` | unset | `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full` |
 | `DB_MIGRATION_USER` / `DB_MIGRATION_PASSWORD` | runtime credentials | optional separate DDL role; password required if user is set |
+| `OAUTH_CLIENTS` | unset (no clients) | JSON array of hosted-login clients, see below; malformed values fail at startup |
 | `LOG_LEVEL` | `INFO` | level of the `tcg.accumulator.meishiapi` loggers |
 | `OTEL_TRACES_EXPORTER` | `none` | e.g. `logging` |
 
@@ -65,6 +66,20 @@ omits every secret. `LogCanaryTest` fails if any of this leaks.
   `/api/users/nicknames` additionally requires `ADMIN`. Role and status are read from the database on every request.
 - Bodies are limited to 16 KiB.
 - CORS: no CORS handler. Browsers are expected to reach the API through a same-origin reverse proxy.
+
+## Hosted login (OAuth 2 authorization code with PKCE)
+
+See `docs/adr-meishi-identity-provider.md`. Clients are first party and come from `OAUTH_CLIENTS`:
+
+```json
+[{"id": "omiyage", "name": "Omiyage",
+  "redirectUris": ["https://omiyage.example/auth/callback"],
+  "returnUris": ["https://omiyage.example/account"]}]
+```
+
+URIs must be `https` (`http` only for `localhost`) with no fragment or user info, and are compared by exact string
+equality. Codes live 60 seconds, work once and need the PKCE S256 verifier. The token is the usual Meishi JWT, capped
+at the expiry of the session that authorized it.
 
 ## JWT contract (shared with omiyage-api)
 
