@@ -22,6 +22,7 @@ data class AppConfig(
     val loginAttemptsPerMinute: Int = DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE,
     val clientIpHeader: String? = null,
     val oauthClients: List<OAuthClient> = emptyList(),
+    val oauthEnabled: Boolean = false,
 ) {
     val jdbcUrl: String get() = "jdbc:postgresql://$dbHost:$dbPort/$dbName" + (dbSslMode?.let { "?sslmode=$it" } ?: "")
 
@@ -36,6 +37,12 @@ data class AppConfig(
         private const val MIN_JWT_SECRET_LENGTH = 32
         private const val KNOWN_DEV_JWT_SECRET = "dev-secret-change-me"
         private const val KNOWN_DEFAULT_ADMIN_PASSWORD = "admin"
+
+        private fun parseBoolean(value: String): Boolean = when (value.lowercase()) {
+            "true" -> true
+            "false" -> false
+            else -> error("OAUTH_ENABLED must be true or false")
+        }
 
         fun fromEnv(getenv: (String) -> String? = System::getenv): AppConfig {
             fun env(name: String, default: String) = getenv(name) ?: default
@@ -62,6 +69,10 @@ data class AppConfig(
                 "ADMIN_PASSWORD must not be the default value '$KNOWN_DEFAULT_ADMIN_PASSWORD'"
             }
 
+            val oauthClients = optional("OAUTH_CLIENTS")?.let(::parseOAuthClients) ?: emptyList()
+            val oauthEnabled = optional("OAUTH_ENABLED")?.let(::parseBoolean) ?: false
+            check(!oauthEnabled || oauthClients.isNotEmpty()) { "OAUTH_ENABLED is true but OAUTH_CLIENTS has no clients" }
+
             return AppConfig(
                 httpPort = env("HTTP_PORT", "8080").toInt(),
                 dbHost = env("DB_HOST", "localhost"),
@@ -79,7 +90,8 @@ data class AppConfig(
                 adminPassword = adminPassword,
                 loginAttemptsPerMinute = env("LOGIN_ATTEMPTS_PER_MINUTE", DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE.toString()).toInt(),
                 clientIpHeader = optional("CLIENT_IP_HEADER"),
-                oauthClients = optional("OAUTH_CLIENTS")?.let(::parseOAuthClients) ?: emptyList(),
+                oauthClients = oauthClients,
+                oauthEnabled = oauthEnabled,
             )
         }
     }

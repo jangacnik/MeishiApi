@@ -53,10 +53,12 @@ class OAuthHandlerTest {
         val session: String,
     )
 
-    private suspend fun harness(vertx: Vertx, clients: List<OAuthClient> = listOf(omiyage)): Harness {
+    private suspend fun harness(vertx: Vertx, clients: List<OAuthClient> = listOf(omiyage),
+        oauthEnabled: Boolean = clients.isNotEmpty(),
+    ): Harness {
         val repo = FakeUserRepository()
         val jwt = JwtService(vertx, "test-secret")
-        val router = buildRouter(vertx, repo, PasswordHasher(vertx), jwt, oauthClients = clients)
+        val router = buildRouter(vertx, repo, PasswordHasher(vertx), jwt, oauthClients = clients, oauthEnabled = oauthEnabled)
         val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
         val (userId, _) = repo.create(Role.USER)
         repo.activate(userId, "alice", "hash")
@@ -110,6 +112,27 @@ class OAuthHandlerTest {
         assertEquals(status, response.statusCode())
         assertEquals(error, response.bodyAsJsonObject().getString("error"))
     }
+
+    @Test
+    fun `all three routes answer 404 oauth_disabled while the switch is off even with clients registered`(vertx: Vertx) =
+        runBlocking(vertx.dispatcher()) {
+            val h = harness(vertx, oauthEnabled = false)
+
+            assertRejected(lookup(h, "client_id=$CLIENT_ID"), 404, "oauth_disabled")
+            assertRejected(authorize(h), 404, "oauth_disabled")
+            assertRejected(authorize(h, token = null), 404, "oauth_disabled")
+            assertRejected(exchange(h, tokenForm("any-code")), 404, "oauth_disabled")
+        }
+
+    @Test
+    fun `a client switched off is unknown to every route while the others keep working`(vertx: Vertx) =
+        runBlocking(vertx.dispatcher()) {
+            val h = harness(vertx, listOf(omiyage, omiyage.copy(id = "reader", name = "Reader", enabled = false)))
+
+            assertEquals(200, lookup(h, "client_id=$CLIENT_ID").statusCode())
+            assertRejected(lookup(h, "client_id=reader"), 400, "invalid_client")
+            assertRejected(authorize(h, authorizeBody().put("client_id", "reader")), 400, "invalid_client")
+        }
 
     @Test
     fun `lookup names a registered client`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {

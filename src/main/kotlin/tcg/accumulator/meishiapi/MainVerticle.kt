@@ -41,6 +41,7 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
                 LoginRateLimiter(config.loginAttemptsPerMinute), config.clientIpHeader,
                 readinessCheck = { pool.query("SELECT 1").execute().coAwait() },
                 oauthClients = config.oauthClients,
+                oauthEnabled = config.oauthEnabled,
             )
             log.trace("router built")
 

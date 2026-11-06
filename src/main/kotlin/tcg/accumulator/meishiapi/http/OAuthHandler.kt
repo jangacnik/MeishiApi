@@ -33,7 +33,7 @@ class OAuthHandler(
     private val authorizeLimiter: LoginRateLimiter = LoginRateLimiter(AUTHORIZE_REQUESTS_PER_MINUTE),
 ) {
     private val log = LoggerFactory.getLogger(OAuthHandler::class.java)
-    private val clientsById = clients.associateBy { it.id }
+    private val clientsById = clients.filter { it.enabled }.associateBy { it.id }
 
     fun client(ctx: RoutingContext) = respond(ctx) {
         val client = registeredClient(ctx.request().getParam("client_id"))
