@@ -9,6 +9,7 @@ import io.vertx.sqlclient.Pool
 import io.vertx.sqlclient.Row
 import io.vertx.sqlclient.SqlClient
 import io.vertx.sqlclient.Tuple
+import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.http.AppError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
@@ -47,7 +48,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     }
 
     override suspend fun findByNickname(nickname: String): AuthRecord? {
-        log.trace("lookup by nickname='{}'", nickname)
+        log.trace("lookup by nickname")
         val rows = pool.preparedQuery(
             "SELECT $AUTH_COLUMNS FROM users WHERE nickname = $1",
         ).execute(Tuple.of(nickname)).coAwait()
@@ -55,7 +56,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     }
 
     override suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit> = either {
-        log.trace("activate user {} with nickname '{}'", id, nickname)
+        log.trace("activate user {}", id)
         try {
             val result = pool.preparedQuery(
                 "UPDATE users SET nickname = $1, password_hash = $2, activated_at = now() " +
@@ -65,10 +66,10 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
                 log.warn("activation of {} failed: already activated", id)
                 raise(AppError.Conflict("invalid activation key"))
             }
-            log.info("activated user {} as '{}'", id, nickname)
+            log.info("activated user {}", id)
         } catch (e: PgException) {
             if (e.sqlState == POSTGRES_UNIQUE_VIOLATION) {
-                log.warn("activation of {} failed: nickname '{}' already taken", id, nickname)
+                log.warn("activation of {} failed: nickname already taken", id)
                 raise(AppError.Conflict("nickname already taken"))
             }
             throw e
@@ -121,7 +122,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
     }
 
     override suspend fun updateNickname(id: UUID, nickname: String): Either<AppError, Unit> = either {
-        log.trace("update nickname of {} to '{}'", id, nickname)
+        log.trace("update nickname of {}", id)
         try {
             pool.preparedQuery(
                 "UPDATE users SET nickname = $1 WHERE id = $2",
@@ -129,7 +130,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
             log.info("updated nickname for user {}", id)
         } catch (e: PgException) {
             if (e.sqlState == POSTGRES_UNIQUE_VIOLATION) {
-                log.warn("nickname update for {} failed: '{}' already taken", id, nickname)
+                log.warn("nickname update for {} failed: already taken", id)
                 raise(AppError.Conflict("nickname already taken"))
             }
             throw e
@@ -162,7 +163,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
             log.info("admin updated profile for user {}", id)
         } catch (e: PgException) {
             if (e.sqlState == POSTGRES_UNIQUE_VIOLATION) {
-                log.warn("admin profile update for {} failed: nickname '{}' already taken", id, nickname)
+                log.warn("admin profile update for {} failed: nickname already taken", id)
                 raise(AppError.Conflict("nickname already taken"))
             }
             throw e
@@ -296,7 +297,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
                     raise(AppError.NotFound("user not found"))
                 }
                 conn.insertAudit(actorId, action, id, details)
-                log.info("{} on {} by {}", action, id, actorId)
+                log.info("admin_action {} {} {}", kv("actorId", actorId), kv("action", action), kv("targetId", id))
             }
             if (result.isRight()) tx.commit().coAwait() else tx.rollback().coAwait()
             return result

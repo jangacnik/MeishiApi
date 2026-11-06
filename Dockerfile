@@ -10,6 +10,7 @@ COPY src src
 RUN ./gradlew --no-daemon installDist
 
 FROM eclipse-temurin:21-jre
+RUN apt-get update && apt-get install -y --only-upgrade apt libapt-pkg7.0 && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --create-home --shell /usr/sbin/nologin meishi
 WORKDIR /app
 COPY --from=build --chown=meishi:meishi /app/build/install/MeishiApi ./

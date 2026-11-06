@@ -66,7 +66,7 @@ class MainVerticle(private val config: AppConfig) : VerticleBase() {
     private suspend fun seedAdminIfMissing(repository: UserRepository, hasher: PasswordHasher, config: AppConfig) {
         if (repository.countAdmins() == 0) {
             repository.seedAdmin(config.adminNickname, hasher.hash(config.adminPassword))
-            log.info("seeded initial admin user '{}'", config.adminNickname)
+            log.info("seeded initial admin user")
         } else {
             log.trace("admin already present, skipping seed")
         }

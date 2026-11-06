@@ -6,26 +6,25 @@ import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.ext.web.handler.JWTAuthHandler
-import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
+import tcg.accumulator.meishiapi.logging.describe
 import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
-import java.util.UUID
 
-private const val REQUEST_ID_HEADER = "X-Request-Id"
-private val REQUEST_ID_PATTERN = Regex("^[A-Za-z0-9-]{1,64}$")
 const val DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE = 10
 private const val MAX_BODY_BYTES = 16L * 1024
 private const val READINESS_TIMEOUT_MILLIS = 2_000L
 
 private val log = LoggerFactory.getLogger("tcg.accumulator.meishiapi.http.Routing")
+private val security = LoggerFactory.getLogger(SECURITY_LOGGER)
+internal const val CLIENT_IP_KEY = "clientIp"
 
 fun buildRouter(
     vertx: Vertx,
@@ -38,7 +37,8 @@ fun buildRouter(
     readinessCheck: suspend () -> Unit = {},
 ): Router {
     val router = Router.router(vertx)
-    router.route().handler(::logRequest)
+    val routeTemplates by lazy { router.routes.mapNotNull { it.path }.toSet() }
+    router.route().handler { ctx -> logRequest(ctx) { routeTemplates } }
     router.route().handler(BodyHandler.create(false).setBodyLimit(MAX_BODY_BYTES))
     router.route().failureHandler(::handleFailure)
 
@@ -91,33 +91,21 @@ private fun clientIp(ctx: RoutingContext, header: String?): String =
         ?: ctx.request().remoteAddress().host()
 
 private fun limitLoginRate(ctx: RoutingContext, limiter: LoginRateLimiter, clientIpHeader: String?) {
-    val retryAfterSeconds = limiter.tryAcquire(clientIp(ctx, clientIpHeader))
+    val ip = clientIp(ctx, clientIpHeader)
+    ctx.put(CLIENT_IP_KEY, ip)
+    val retryAfterSeconds = limiter.tryAcquire(ip)
     if (retryAfterSeconds == 0L) {
         ctx.next()
         return
     }
-    log.warn("login rate limit exceeded for {}", clientIp(ctx, clientIpHeader))
+    withRequestId(ctx) { security.warn("login_rate_limited {}", kv("clientIp", ip)) }
     ctx.response().setStatusCode(429).putHeader("Retry-After", retryAfterSeconds.toString())
         .putHeader("content-type", "application/json")
         .end(JsonObject().put("error", "too many login attempts").encode())
 }
 
-private fun logRequest(ctx: RoutingContext) {
-    val incomingId: String? = ctx.request().getHeader(REQUEST_ID_HEADER)
-    val requestId = incomingId?.takeIf { REQUEST_ID_PATTERN.matches(it) } ?: UUID.randomUUID().toString()
-    val startNanos = System.nanoTime()
-    ctx.response().putHeader(REQUEST_ID_HEADER, requestId)
-    ctx.addBodyEndHandler {
-        log.info(
-            "request {} {} {} -> {} in {} ms", requestId, ctx.request().method(), ctx.request().path(),
-            ctx.response().statusCode, (System.nanoTime() - startNanos) / 1_000_000,
-        )
-    }
-    ctx.next()
-}
-
 private fun checkReadiness(ctx: RoutingContext, readinessCheck: suspend () -> Unit) {
-    CoroutineScope(ctx.vertx().dispatcher()).launch {
+    requestScope(ctx).launch {
         try {
             withTimeout(READINESS_TIMEOUT_MILLIS) { readinessCheck() }
             ctx.json(JsonObject().put("status", "UP"))
@@ -132,7 +120,7 @@ private fun checkReadiness(ctx: RoutingContext, readinessCheck: suspend () -> Un
 }
 
 private fun respondNotReady(ctx: RoutingContext, cause: Throwable) {
-    log.warn("readiness check failed", cause)
+    log.warn("readiness check failed: {}", describe(cause))
     ctx.response().setStatusCode(503).putHeader("content-type", "application/json")
         .end(JsonObject().put("status", "DOWN").encode())
 }
@@ -141,10 +129,12 @@ private fun handleFailure(ctx: RoutingContext) {
     val status = if (ctx.statusCode() > 0) ctx.statusCode() else 500
     val failure = ctx.failure()
     val message = defaultMessageFor(status)
-    if (status >= 500) {
-        log.error("request failed: {} {}", ctx.request().method(), ctx.request().path(), failure)
-    } else {
-        log.debug("request rejected: {} {} -> {} ({})", ctx.request().method(), ctx.request().path(), status, message)
+    withRequestId(ctx) {
+        if (status >= 500) {
+            log.error("request failed with {}: {}", status, failure?.let(::describe))
+        } else {
+            log.debug("request rejected with {} ({})", status, message)
+        }
     }
     ctx.response().setStatusCode(status).putHeader("content-type", "application/json")
         .end(JsonObject().put("error", message).encode())

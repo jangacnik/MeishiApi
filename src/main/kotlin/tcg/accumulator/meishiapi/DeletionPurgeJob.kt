@@ -5,6 +5,7 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.repository.UserRepository
 import java.util.concurrent.TimeUnit
@@ -26,7 +27,7 @@ class DeletionPurgeJob(private val vertx: Vertx, private val repository: UserRep
 
     suspend fun runOnce(): Int =
         try {
-            repository.purgeExpiredDeletions(DELETION_RETENTION_DAYS).also { log.info("purged {} user(s) past retention", it) }
+            repository.purgeExpiredDeletions(DELETION_RETENTION_DAYS).also { log.info("deletion_purged {}", kv("count", it)) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
