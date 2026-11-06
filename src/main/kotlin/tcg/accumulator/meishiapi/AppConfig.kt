@@ -22,6 +22,12 @@ data class AppConfig(
 ) {
     val jdbcUrl: String get() = "jdbc:postgresql://$dbHost:$dbPort/$dbName" + (dbSslMode?.let { "?sslmode=$it" } ?: "")
 
+    /** Leaves out every password and secret, so no log line or exception can print them. */
+    override fun toString(): String =
+        "AppConfig(httpPort=$httpPort, dbHost=$dbHost, dbPort=$dbPort, dbName=$dbName, dbUser=$dbUser, " +
+            "dbPoolSize=$dbPoolSize, dbConnectTimeoutMillis=$dbConnectTimeoutMillis, dbSslMode=$dbSslMode, " +
+            "migrationUser=$migrationUser, loginAttemptsPerMinute=$loginAttemptsPerMinute, clientIpHeader=$clientIpHeader)"
+
     companion object {
         private val SSL_MODES = setOf("disable", "allow", "prefer", "require", "verify-ca", "verify-full")
         private const val MIN_JWT_SECRET_LENGTH = 32

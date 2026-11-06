@@ -4,10 +4,9 @@ import arrow.core.raise.Raise
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
@@ -18,8 +17,8 @@ import tcg.accumulator.meishiapi.security.PasswordHasher
 import java.util.UUID
 
 private val DISCORD_NAME_PATTERN = Regex("[a-z0-9_.]{2,32}")
-private const val CALLER_ID_KEY = "callerId"
-private const val CALLER_ROLE_KEY = "callerRole"
+internal const val CALLER_ID_KEY = "callerId"
+internal const val CALLER_ROLE_KEY = "callerRole"
 
 class UserHandler(
     private val repository: UserRepository,
@@ -27,6 +26,7 @@ class UserHandler(
     private val jwt: JwtService,
 ) {
     private val log = LoggerFactory.getLogger(UserHandler::class.java)
+    private val security = LoggerFactory.getLogger(SECURITY_LOGGER)
 
     /**
      * Resolves the token's subject against the database on every request, so the role and
@@ -38,7 +38,7 @@ class UserHandler(
             ctx.fail(401)
             return
         }
-        CoroutineScope(ctx.vertx().dispatcher()).launch {
+        requestScope(ctx).launch {
             val record = try {
                 repository.findAuthRecordById(callerId)
             } catch (e: CancellationException) {
@@ -60,7 +60,7 @@ class UserHandler(
 
     fun requireAdmin(ctx: RoutingContext) {
         if (ctx.get<Role?>(CALLER_ROLE_KEY) != Role.ADMIN) {
-            log.warn("forbidden: admin role required for {} {}", ctx.request().method(), ctx.request().path())
+            withRequestId(ctx) { log.warn("forbidden: admin role required for user {}", ctx.get<UUID?>(CALLER_ID_KEY)) }
             ctx.fail(403)
             return
         }
@@ -92,7 +92,7 @@ class UserHandler(
         )
         repository.updateNickname(id, nickname).bind()
         val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
-        log.info("user {} changed nickname to '{}'", id, nickname)
+        log.info("nickname_changed {}", kv("userId", id))
         JsonResult(toJson(user))
     }
 
@@ -108,17 +108,17 @@ class UserHandler(
         )
         val record = repository.findAuthRecordById(id) ?: raise(AppError.NotFound("user not found"))
         if (record.isLocked) {
-            log.warn("password change rejected: {} is locked after failed attempts", id)
+            security.warn("password_change_failed {} {}", kv("reason", "locked"), kv("userId", id))
             raise(AppError.Unauthorized("incorrect password"))
         }
         if (!hasher.verify(record.passwordHash, oldPassword)) {
             repository.registerFailedLoginAttempt(id)
-            log.warn("password change failed: incorrect old password for {}", id)
+            security.warn("password_change_failed {} {}", kv("reason", "bad_password"), kv("userId", id))
             raise(AppError.Unauthorized("incorrect password"))
         }
         repository.updatePassword(id, hasher.hash(newPassword))
         repository.resetFailedLoginAttempts(id)
-        log.info("user {} changed their password", id)
+        security.info("password_changed {}", kv("userId", id))
         NoContentResult()
     }
 
