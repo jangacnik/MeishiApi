@@ -34,7 +34,7 @@ fun buildRouter(
     loginRateLimiter: LoginRateLimiter = LoginRateLimiter(DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE),
     clientIpHeader: String? = null,
     oauthClients: List<OAuthClient> = emptyList(),
-    oauthEnabled: Boolean = oauthClients.isNotEmpty(),
+    oauthEnabled: Boolean = false,
     readinessCheck: suspend () -> Unit = {},
 ): Router {
     val router = Router.router(vertx)
