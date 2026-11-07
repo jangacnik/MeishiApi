@@ -33,6 +33,7 @@ Handler tests use an in-memory repository; there are no database-backed tests ye
 | `HTTP_PORT` | `8080` | |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` | `localhost` / `5432` / `meishi` / `meishi` | |
 | `DB_POOL_SIZE` / `DB_CONNECT_TIMEOUT_MS` | `5` / `5000` | |
+| `METRICS_PORT` | unset | serve Prometheus metrics on this port (cluster-internal, keep it out of the Service); unset = no metrics |
 | `DB_SSL_MODE` | unset | `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full` |
 | `DB_MIGRATION_USER` / `DB_MIGRATION_PASSWORD` | runtime credentials | optional separate DDL role; password required if user is set |
 | `OAUTH_CLIENTS` | unset (no clients) | JSON array of hosted-login clients, see below; malformed values fail at startup |
