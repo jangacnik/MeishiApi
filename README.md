@@ -36,6 +36,7 @@ Handler tests use an in-memory repository; there are no database-backed tests ye
 | `METRICS_PORT` | unset | serve Prometheus metrics on this port (cluster-internal, keep it out of the Service); unset = no metrics |
 | `DB_SSL_MODE` | unset | `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full` |
 | `DB_MIGRATION_USER` / `DB_MIGRATION_PASSWORD` | runtime credentials | optional separate DDL role; password required if user is set |
+| `OAUTH_ENABLED` | `false` | master switch for `/api/oauth/*`; `true` needs at least one client in `OAUTH_CLIENTS`, anything but `true`/`false` fails at startup |
 | `OAUTH_CLIENTS` | unset (no clients) | JSON array of hosted-login clients, see below; malformed values fail at startup |
 | `LOG_LEVEL` | `INFO` | level of the `tcg.accumulator.meishiapi` loggers |
 | `OTEL_TRACES_EXPORTER` | `none` | e.g. `logging` |
@@ -77,6 +78,11 @@ See `docs/adr-meishi-identity-provider.md`. Clients are first party and come fro
   "redirectUris": ["https://omiyage.example/auth/callback"],
   "returnUris": ["https://omiyage.example/account"]}]
 ```
+
+The routes `GET /api/oauth/client`, `POST /api/oauth/authorize` and `POST /api/oauth/token` only exist while
+`OAUTH_ENABLED=true`; otherwise they answer 404 `{"error":"oauth_disabled"}`, whatever `OAUTH_CLIENTS` holds. Each client
+can also be switched off on its own with `"enabled": false` (default `true`): it then behaves like an unknown client.
+Registering clients and turning the flow on are separate steps, so `OAUTH_CLIENTS` can be deployed ahead of time.
 
 URIs must be `https` (`http` only for `localhost`) with no fragment or user info, and are compared by exact string
 equality. Codes live 60 seconds, work once and need the PKCE S256 verifier. The token is the usual Meishi JWT, capped

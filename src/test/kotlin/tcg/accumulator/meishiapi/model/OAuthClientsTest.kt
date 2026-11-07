@@ -84,6 +84,28 @@ class OAuthClientsTest {
     }
 
     @Test
+    fun `clients are enabled unless the entry says otherwise`() {
+        fun enabledOf(extra: String) =
+            parseOAuthClients("""[{"id":"x","name":"X","redirectUris":["https://a.example/cb"]$extra}]""").single().enabled
+
+        assertEquals(true, enabledOf(""))
+        assertEquals(true, enabledOf(""","enabled":true"""))
+        assertEquals(false, enabledOf(""","enabled":false"""))
+    }
+
+    @Test
+    fun `OAUTH_ENABLED is off by default and needs clients to be turned on`() {
+        val clients = clientJson("https://omiyage.example/cb")
+
+        assertEquals(false, load(emptyMap()).oauthEnabled)
+        assertEquals(false, load(mapOf("OAUTH_CLIENTS" to clients)).oauthEnabled)
+        assertEquals(false, load(mapOf("OAUTH_CLIENTS" to clients, "OAUTH_ENABLED" to "FALSE")).oauthEnabled)
+        assertEquals(true, load(mapOf("OAUTH_CLIENTS" to clients, "OAUTH_ENABLED" to "true")).oauthEnabled)
+        assertFails { load(mapOf("OAUTH_ENABLED" to "true")) }
+        assertFails { load(mapOf("OAUTH_CLIENTS" to clients, "OAUTH_ENABLED" to "yes")) }
+    }
+
+    @Test
     fun `a malformed OAUTH_CLIENTS fails at startup`() {
         assertFails { load(mapOf("OAUTH_CLIENTS" to "not json")) }
     }

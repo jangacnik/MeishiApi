@@ -15,6 +15,7 @@ data class OAuthClient(
     val name: String,
     val redirectUris: Set<String>,
     val returnUris: Set<String>,
+    val enabled: Boolean = true,
 )
 
 /** What a single-use authorization code stands for. [sessionExpiresAt] caps the token it is exchanged for. */
@@ -42,6 +43,7 @@ private fun parseClient(client: JsonObject): OAuthClient {
         name = client.getString("name")?.takeIf { it.isNotBlank() } ?: error("OAUTH_CLIENTS client $id has no name"),
         redirectUris = redirectUris,
         returnUris = uriSet(client, "returnUris"),
+        enabled = client.getBoolean("enabled", true),
     )
 }
 
