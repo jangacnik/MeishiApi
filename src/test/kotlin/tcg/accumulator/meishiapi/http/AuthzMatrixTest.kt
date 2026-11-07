@@ -57,7 +57,7 @@ class AuthzMatrixTest {
     private suspend fun harness(vertx: Vertx): Harness {
         val repo = FakeUserRepository()
         val jwt = JwtService(vertx, "test-secret")
-        val router = buildRouter(vertx, repo, PasswordHasher(vertx), jwt)
+        val router = buildRouter(vertx, repo, PasswordHasher(vertx), jwt, oauthEnabled = true)
         val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
         val (userId, _) = repo.create(Role.USER)
         repo.activate(userId, "bob", "hash")
