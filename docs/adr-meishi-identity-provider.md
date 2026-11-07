@@ -105,8 +105,9 @@ Table `oauth_authorization_codes`, an additive migration: `code_hash` (SHA-256, 
 A database table is used over memory because a code must survive a pod restart during a redirect and stay single-use
 if `replicas` ever grows.
 
-The token endpoint has no IP rate limit. All calls come from app servers, so one user's traffic would throttle
-everyone, and a 256-bit code cannot be guessed.
+`/api/oauth/token` and `/api/oauth/client` are limited to 60 requests per minute per client IP, in a bucket separate
+from password login. Token calls come from app servers, so the limit is set well above normal login traffic: it caps
+the database work an anonymous caller can cause, not guessing, since a 256-bit code cannot be guessed.
 
 ## Token and session strategy
 

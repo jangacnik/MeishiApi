@@ -1,5 +1,6 @@
 package tcg.accumulator.meishiapi.http
 
+import io.vertx.core.MultiMap
 import io.vertx.core.Vertx
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.client.WebClient
@@ -11,10 +12,15 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import tcg.accumulator.meishiapi.logging.LogCapture
+import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.repository.FakeUserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.PasswordHasher
+import java.net.URI
+import java.net.URLDecoder
+import java.security.MessageDigest
+import java.util.Base64
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -27,6 +33,10 @@ private const val CANARY_ADDRESS = "CANARY_ADDRESS_7f3a"
 private const val CANARY_NAME = "CanaryFirst7f3a"
 private const val CANARY_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJDQU5BUlk3ZjNhIn0.CANARYJWT7f3a"
 private const val CANARY_QUERY = "CANARY_QUERY_7f3a"
+private const val CANARY_STATE = "CANARY_STATE_7f3a"
+private const val CANARY_CODE = "CANARY_CODE_7f3a"
+private const val CANARY_VERIFIER = "CANARY_VERIFIER_7f3a_padded_to_the_minimum_length"
+private const val REDIRECT_URI = "https://omiyage.example/auth/callback"
 
 /**
  * Drives the real HTTP stack with distinctive values and asserts none of them reaches any log line.
@@ -89,6 +99,53 @@ class LogCanaryTest {
             assertTrue(logs.events.count { it.loggerName == "access" } >= 15, "expected access lines in:\n$logged")
             val leaks = logs.events.map { "${it.loggerName}: ${logs.render(it)}" }.filter { line -> canaries.any { it in line } }
             assertTrue(leaks.isEmpty(), "canary values were logged:\n${leaks.joinToString("\n")}")
+        }
+    }
+
+    @Test
+    fun `no authorization code, verifier or state reaches the logs`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        LogCapture().use { logs ->
+            val repo = FakeUserRepository()
+            val jwt = JwtService(vertx, "test-secret")
+            val client = OAuthClient("omiyage", "Omiyage", setOf(REDIRECT_URI), emptySet())
+            val router = buildRouter(vertx, repo, PasswordHasher(vertx), jwt, oauthClients = listOf(client), oauthEnabled = true)
+            val port = vertx.createHttpServer().requestHandler(router).listen(0).coAwait().actualPort()
+            val web = WebClient.create(vertx)
+            val (userId, _) = repo.create(Role.USER)
+            repo.activate(userId, "alice", "hash")
+            val session = jwt.generateToken(userId, "alice", Role.USER, 600)
+            val challenge = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(MessageDigest.getInstance("SHA-256").digest(CANARY_VERIFIER.toByteArray()))
+
+            suspend fun issueCode(): String {
+                val body = JsonObject().put("response_type", "code").put("client_id", "omiyage").put("redirect_uri", REDIRECT_URI)
+                    .put("state", CANARY_STATE).put("code_challenge", challenge).put("code_challenge_method", "S256")
+                val redirect = web.post(port, "localhost", "/api/oauth/authorize").putHeader("Authorization", "Bearer $session")
+                    .sendJsonObject(body).coAwait().bodyAsJsonObject().getString("redirectUrl") ?: fail("authorize failed")
+                val query = URI(redirect).rawQuery.split("&").associate { it.substringBefore("=") to it.substringAfter("=") }
+                return URLDecoder.decode(query.getValue("code"), Charsets.UTF_8)
+            }
+
+            suspend fun exchange(code: String, verifier: String) = web.post(port, "localhost", "/api/oauth/token").sendForm(
+                MultiMap.caseInsensitiveMultiMap().add("grant_type", "authorization_code").add("code", code)
+                    .add("redirect_uri", REDIRECT_URI).add("client_id", "omiyage").add("code_verifier", verifier),
+            ).coAwait()
+
+            val code = issueCode()
+            val accessToken = exchange(code, CANARY_VERIFIER).bodyAsJsonObject().getString("access_token")
+                ?: fail("token exchange failed")
+            exchange(code, CANARY_VERIFIER)
+            exchange(issueCode(), "${CANARY_VERIFIER}_wrong")
+            exchange(CANARY_CODE, CANARY_VERIFIER)
+            web.get(port, "localhost", "/api/oauth/client?client_id=omiyage&state=$CANARY_STATE").send().coAwait()
+            delay(200)
+
+            val secrets = listOf(CANARY_STATE, CANARY_CODE, CANARY_VERIFIER, challenge, code, accessToken)
+            val logged = logs.renderAll()
+            assertTrue(logs.events.any { it.formattedMessage.startsWith("issued authorization code") }, "expected oauth lines in:\n$logged")
+            assertTrue(logs.events.any { it.formattedMessage.startsWith("rejected authorization code") }, "expected oauth lines in:\n$logged")
+            val leaks = logs.events.map { "${it.loggerName}: ${logs.render(it)}" }.filter { line -> secrets.any { it in line } }
+            assertTrue(leaks.isEmpty(), "oauth secrets were logged:\n${leaks.joinToString("\n")}")
         }
     }
 }

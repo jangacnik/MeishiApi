@@ -1,5 +1,6 @@
 package tcg.accumulator.meishiapi.http
 
+import io.vertx.core.Handler
 import io.vertx.core.Vertx
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.Router
@@ -35,6 +36,7 @@ fun buildRouter(
     clientIpHeader: String? = null,
     oauthClients: List<OAuthClient> = emptyList(),
     oauthEnabled: Boolean = false,
+    oauthRateLimiter: LoginRateLimiter = LoginRateLimiter(OAUTH_REQUESTS_PER_MINUTE),
     readinessCheck: suspend () -> Unit = {},
 ): Router {
     val router = Router.router(vertx)
@@ -56,9 +58,10 @@ fun buildRouter(
 
     if (oauthEnabled) {
         val oauth = OAuthHandler(repository, jwt, oauthClients)
-        router.get("/api/oauth/client").handler(oauth::client)
+        val limitOAuthRate = Handler<RoutingContext> { ctx -> limitLoginRate(ctx, oauthRateLimiter, clientIpHeader) }
+        router.get("/api/oauth/client").handler(limitOAuthRate).handler(oauth::client)
         router.post("/api/oauth/authorize").handler(jwtAuthHandler).handler(users::loadCaller).handler(oauth::authorize)
-        router.post("/api/oauth/token").handler(oauth::token)
+        router.post("/api/oauth/token").handler(limitOAuthRate).handler(oauth::token)
     } else {
         router.route("/api/oauth/*").handler { ctx -> respond(ctx) { raise(AppError.NotFound("oauth_disabled")) } }
     }
