@@ -22,6 +22,10 @@ import java.time.ZoneOffset
 private const val CODE_TTL_SECONDS = 60
 private const val MAX_STATE_LENGTH = 512
 const val AUTHORIZE_REQUESTS_PER_MINUTE = 30
+
+/** Per client IP for the unauthenticated `/api/oauth/client` and `/api/oauth/token`. Token calls come from app servers,
+ *  so one bucket covers all users of an app: this caps abuse without throttling normal logins. */
+const val OAUTH_REQUESTS_PER_MINUTE = 60
 private const val INVALID_REQUEST = "invalid_request"
 private const val INVALID_GRANT = "invalid_grant"
 
@@ -45,6 +49,7 @@ class OAuthHandler(
     }
 
     fun authorize(ctx: RoutingContext) = respond(ctx) {
+        ctx.response().putHeader("Cache-Control", "no-store").putHeader("Pragma", "no-cache")
         val body = requiredJsonBody(ctx)
         if (stringField(body, "response_type") != "code") raise(AppError.BadRequest("unsupported_response_type"))
         val client = registeredClient(stringField(body, "client_id"))

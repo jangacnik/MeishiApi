@@ -83,6 +83,9 @@ The routes `GET /api/oauth/client`, `POST /api/oauth/authorize` and `POST /api/o
 `OAUTH_ENABLED=true`; otherwise they answer 404 `{"error":"oauth_disabled"}`, whatever `OAUTH_CLIENTS` holds. Each client
 can also be switched off on its own with `"enabled": false` (default `true`): it then behaves like an unknown client.
 Registering clients and turning the flow on are separate steps, so `OAUTH_CLIENTS` can be deployed ahead of time.
+`/api/oauth/client` and `/api/oauth/token` allow 60 requests per minute per client IP (a bucket separate from
+`/api/auth/login`; over the limit: 429 with `Retry-After` and a `login_rate_limited` security event). Authorize and
+token responses carry `Cache-Control: no-store`.
 
 URIs must be `https` (`http` only for `localhost`) with no fragment or user info, and are compared by exact string
 equality. Codes live 60 seconds, work once and need the PKCE S256 verifier. The token is the usual Meishi JWT, capped

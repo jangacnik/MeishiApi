@@ -55,10 +55,11 @@ class OAuthHandlerTest {
 
     private suspend fun harness(vertx: Vertx, clients: List<OAuthClient> = listOf(omiyage),
         oauthEnabled: Boolean = clients.isNotEmpty(),
+        oauthRateLimiter: LoginRateLimiter = LoginRateLimiter(OAUTH_REQUESTS_PER_MINUTE),
     ): Harness {
         val repo = FakeUserRepository()
         val jwt = JwtService(vertx, "test-secret")
-        val router = buildRouter(vertx, repo, PasswordHasher(vertx), jwt, oauthClients = clients, oauthEnabled = oauthEnabled)
+        val router = buildRouter(vertx, repo, PasswordHasher(vertx), jwt, oauthClients = clients, oauthEnabled = oauthEnabled, oauthRateLimiter = oauthRateLimiter)
         val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
         val (userId, _) = repo.create(Role.USER)
         repo.activate(userId, "alice", "hash")
@@ -133,6 +134,30 @@ class OAuthHandlerTest {
             assertRejected(lookup(h, "client_id=reader"), 400, "invalid_client")
             assertRejected(authorize(h, authorizeBody().put("client_id", "reader")), 400, "invalid_client")
         }
+
+    @Test
+    fun `lookup and token are limited per client ip while authorize is not`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx, oauthRateLimiter = LoginRateLimiter(2))
+
+        assertEquals(200, lookup(h, "client_id=$CLIENT_ID").statusCode())
+        assertRejected(exchange(h, tokenForm("unknown-code")), 400, "invalid_grant")
+        val limited = lookup(h, "client_id=$CLIENT_ID")
+        assertRejected(limited, 429, "too many login attempts")
+        assertTrue(limited.getHeader("Retry-After").toLong() >= 1)
+        assertRejected(exchange(h, tokenForm("unknown-code")), 429, "too many login attempts")
+        assertEquals(200, authorize(h).statusCode())
+    }
+
+    @Test
+    fun `the authorize response is never cached`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx)
+
+        val response = authorize(h)
+
+        assertEquals(200, response.statusCode())
+        assertEquals("no-store", response.getHeader("Cache-Control"))
+        assertEquals("no-cache", response.getHeader("Pragma"))
+    }
 
     @Test
     fun `lookup names a registered client`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
