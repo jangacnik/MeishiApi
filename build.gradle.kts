@@ -14,6 +14,7 @@ repositories {
 val vertxVersion = "5.2.2"
 val flywayVersion = "10.22.0"
 val otelVersion = "1.67.0"
+val micrometerVersion = "1.17.2"
 
 dependencies {
     implementation(platform("com.fasterxml.jackson:jackson-bom:2.22.4"))
@@ -26,6 +27,8 @@ dependencies {
     implementation("io.vertx:vertx-auth-jwt:$vertxVersion")
     implementation("io.vertx:vertx-lang-kotlin-coroutines:$vertxVersion")
     implementation("io.vertx:vertx-opentelemetry:$vertxVersion")
+    implementation("io.vertx:vertx-micrometer-metrics:$vertxVersion")
+    implementation("io.micrometer:micrometer-registry-prometheus:$micrometerVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:1.11.0")
 

@@ -4,6 +4,7 @@ import io.vertx.core.Vertx
 import io.vertx.tracing.opentelemetry.OpenTelemetryTracingFactory
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.telemetry.buildOpenTelemetry
+import tcg.accumulator.meishiapi.telemetry.vertxOptions
 import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 
@@ -26,7 +27,7 @@ fun main() {
     }
 
     val openTelemetry = buildOpenTelemetry(serviceName = "meishi-api")
-    val vertx = Vertx.builder().withTracer(OpenTelemetryTracingFactory(openTelemetry)).build()
+    val vertx = Vertx.builder().with(vertxOptions(config.metricsPort)).withTracer(OpenTelemetryTracingFactory(openTelemetry)).build()
     registerShutdownHook(vertx)
     vertx.deployVerticle(MainVerticle(config)).onFailure {
         log.error("failed to deploy MainVerticle, exiting", it)
