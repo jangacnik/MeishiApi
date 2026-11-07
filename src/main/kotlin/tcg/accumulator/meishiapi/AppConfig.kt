@@ -22,6 +22,7 @@ data class AppConfig(
     val loginAttemptsPerMinute: Int = DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE,
     val clientIpHeader: String? = null,
     val oauthClients: List<OAuthClient> = emptyList(),
+    val metricsPort: Int? = null,
 ) {
     val jdbcUrl: String get() = "jdbc:postgresql://$dbHost:$dbPort/$dbName" + (dbSslMode?.let { "?sslmode=$it" } ?: "")
 
@@ -29,7 +30,8 @@ data class AppConfig(
     override fun toString(): String =
         "AppConfig(httpPort=$httpPort, dbHost=$dbHost, dbPort=$dbPort, dbName=$dbName, dbUser=$dbUser, " +
             "dbPoolSize=$dbPoolSize, dbConnectTimeoutMillis=$dbConnectTimeoutMillis, dbSslMode=$dbSslMode, " +
-            "migrationUser=$migrationUser, loginAttemptsPerMinute=$loginAttemptsPerMinute, clientIpHeader=$clientIpHeader)"
+            "migrationUser=$migrationUser, loginAttemptsPerMinute=$loginAttemptsPerMinute, clientIpHeader=$clientIpHeader, " +
+            "metricsPort=$metricsPort)"
 
     companion object {
         private val SSL_MODES = setOf("disable", "allow", "prefer", "require", "verify-ca", "verify-full")
@@ -80,6 +82,7 @@ data class AppConfig(
                 loginAttemptsPerMinute = env("LOGIN_ATTEMPTS_PER_MINUTE", DEFAULT_LOGIN_ATTEMPTS_PER_MINUTE.toString()).toInt(),
                 clientIpHeader = optional("CLIENT_IP_HEADER"),
                 oauthClients = optional("OAUTH_CLIENTS")?.let(::parseOAuthClients) ?: emptyList(),
+                metricsPort = optional("METRICS_PORT")?.toInt(),
             )
         }
     }

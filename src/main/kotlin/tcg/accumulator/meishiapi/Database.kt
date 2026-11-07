@@ -13,6 +13,9 @@ import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("tcg.accumulator.meishiapi.Database")
 
+/** Names the pool so its metrics carry a pool_name label. */
+private const val POOL_NAME = "pg"
+
 fun runMigrations(config: AppConfig) {
     log.info("running migrations against {}:{}/{} as {}", config.dbHost, config.dbPort, config.dbName, config.migrationUser)
     val result = Flyway.configure()
@@ -35,7 +38,7 @@ fun createPool(vertx: Vertx, config: AppConfig): Pool {
     val transportOptions = NetClientOptions().setConnectTimeout(config.dbConnectTimeoutMillis)
 
     return PgBuilder.pool()
-        .with(PoolOptions().setMaxSize(config.dbPoolSize))
+        .with(PoolOptions().setMaxSize(config.dbPoolSize).setName(POOL_NAME))
         .with(transportOptions)
         .connectingTo(connectOptions)
         .using(vertx)

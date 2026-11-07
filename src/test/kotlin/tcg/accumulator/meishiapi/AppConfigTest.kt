@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AppConfigTest {
@@ -90,5 +91,12 @@ class AppConfigTest {
             assertFalse(it in text, "$it in $text")
         }
         assertTrue("dbHost=localhost" in text)
+    }
+
+    @Test
+    fun `metrics port is off unless set`() {
+        assertNull(load(valid).metricsPort)
+        assertEquals(8082, load(valid + ("METRICS_PORT" to "8082")).metricsPort)
+        assertNull(load(valid + ("METRICS_PORT" to " ")).metricsPort)
     }
 }
