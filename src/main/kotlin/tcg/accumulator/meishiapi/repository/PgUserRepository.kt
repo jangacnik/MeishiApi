@@ -11,7 +11,7 @@ import io.vertx.sqlclient.SqlClient
 import io.vertx.sqlclient.Tuple
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
-import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.AuthError
 import tcg.accumulator.meishiapi.domain.DomainError
 import tcg.accumulator.meishiapi.domain.UserError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
@@ -66,7 +66,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
             ).execute(Tuple.of(nickname, passwordHash, id)).coAwait()
             if (result.rowCount() == 0) {
                 log.warn("activation of {} failed: already activated", id)
-                raise(AppError.Conflict("invalid activation key"))
+                raise(AuthError.InvalidActivationKey)
             }
             log.info("activated user {}", id)
         } catch (e: PgException) {

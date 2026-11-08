@@ -13,7 +13,7 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
-import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.AuthError
 import tcg.accumulator.meishiapi.domain.DomainError
 import tcg.accumulator.meishiapi.domain.UserError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
@@ -24,7 +24,6 @@ import java.time.OffsetDateTime
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -95,7 +94,7 @@ class PgUserRepositoryTest {
 
         val second = repo.activate(id, "alice2", "hash")
 
-        assertIs<AppError.Conflict>(second.leftOrNull())
+        assertEquals(AuthError.InvalidActivationKey, second.leftOrNull())
     }
 
     @Test

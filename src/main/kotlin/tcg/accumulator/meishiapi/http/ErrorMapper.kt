@@ -1,6 +1,7 @@
 package tcg.accumulator.meishiapi.http
 
 import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.AuthError
 import tcg.accumulator.meishiapi.domain.DomainError
 import tcg.accumulator.meishiapi.domain.InvalidInput
 import tcg.accumulator.meishiapi.domain.UserError
@@ -16,6 +17,10 @@ data class HttpFailure(
 /** The only place a [DomainError] gets an HTTP status and error text. Exhaustive, so a new case cannot go unmapped. */
 fun DomainError.toHttpFailure(): HttpFailure = when (this) {
     is InvalidInput -> HttpFailure(400, message)
+    AuthError.InvalidActivationKey -> HttpFailure(409, "invalid activation key")
+    AuthError.InvalidCredentials -> HttpFailure(401, "invalid nickname or password")
+    AuthError.Unauthenticated -> HttpFailure(401, "unauthenticated")
+    is AuthError.ActivatedUserWithoutNickname -> HttpFailure(500, "activated user $userId has no nickname")
     UserError.NotFound -> HttpFailure(404, "user not found")
     UserError.NicknameTaken -> HttpFailure(409, "nickname already taken")
     UserError.IncorrectPassword -> HttpFailure(401, "incorrect password")

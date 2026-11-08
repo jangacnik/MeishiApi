@@ -8,7 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
-import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.AuthError
 import tcg.accumulator.meishiapi.domain.InvalidInput
 import tcg.accumulator.meishiapi.domain.UserError
 import tcg.accumulator.meishiapi.model.Role
@@ -228,8 +228,8 @@ class UserHandler(
         NoContentResult()
     }
 
-    private fun Raise<AppError>.callerId(ctx: RoutingContext): UUID =
-        ctx.get<UUID?>(CALLER_ID_KEY) ?: raise(AppError.Unauthorized("unauthenticated"))
+    private fun Raise<AuthError>.callerId(ctx: RoutingContext): UUID =
+        ctx.get<UUID?>(CALLER_ID_KEY) ?: raise(AuthError.Unauthenticated)
 
     private fun Raise<InvalidInput>.pathId(ctx: RoutingContext): UUID =
         parseUuidOrNull(ctx.pathParam("id")) ?: raise(InvalidInput("invalid id"))

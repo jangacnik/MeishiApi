@@ -305,6 +305,18 @@ class ErrorResponsesTest {
         expectError(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", PASSWORD))
     }
 
+    @Test
+    fun `login to an activated account that has no nickname is a 500 naming the account`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = harness(vertx, wrap = { repo ->
+            object : UserRepository by repo {
+                override suspend fun findByNickname(nickname: String): AuthRecord? = repo.findByNickname(nickname)?.copy(nickname = null)
+            }
+        })
+        h.repo.updatePassword(h.userId, h.hasher.hash(PASSWORD))
+
+        h.expectError(500, "activated user ${h.userId} has no nickname", HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", PASSWORD))
+    }
+
     // Self-service.
 
     @Test

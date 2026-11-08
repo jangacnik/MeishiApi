@@ -2,7 +2,7 @@ package tcg.accumulator.meishiapi.repository
 
 import arrow.core.Either
 import arrow.core.raise.either
-import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.AuthError
 import tcg.accumulator.meishiapi.domain.DomainError
 import tcg.accumulator.meishiapi.domain.UserError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
@@ -65,7 +65,7 @@ class FakeUserRepository : UserRepository {
 
     override suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<DomainError, Unit> = either {
         val record = byId.getValue(id)
-        if (record.activatedAt != null) raise(AppError.Conflict("invalid activation key"))
+        if (record.activatedAt != null) raise(AuthError.InvalidActivationKey)
         if (byId.values.any { it.nickname.equals(nickname, ignoreCase = true) && it.id != id }) {
             raise(UserError.NicknameTaken)
         }
