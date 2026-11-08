@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.DomainError
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User
@@ -246,7 +247,7 @@ class UserHandler(
         "discordName" to "discord_name",
     )
 
-    private fun Raise<AppError>.profileFieldsOf(body: JsonObject): Map<String, String?> =
+    private fun Raise<DomainError>.profileFieldsOf(body: JsonObject): Map<String, String?> =
         profileFieldColumns.entries
             .filter { (jsonKey, _) -> body.containsKey(jsonKey) }
             .associate { (jsonKey, column) -> column to stringField(body, jsonKey) }
