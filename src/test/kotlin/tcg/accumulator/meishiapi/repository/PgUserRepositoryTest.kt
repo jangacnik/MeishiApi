@@ -14,6 +14,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.DomainError
+import tcg.accumulator.meishiapi.domain.UserError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
@@ -27,7 +29,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-private fun <A> Either<AppError, A>.getOrThrow(): A = getOrElse { error("unexpected $it") }
+private fun <A> Either<DomainError, A>.getOrThrow(): A = getOrElse { error("unexpected $it") }
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PgUserRepositoryTest {
@@ -71,7 +73,7 @@ class PgUserRepositoryTest {
         activatedUser("admin")
         val (id, _) = repo.create(Role.USER)
 
-        assertIs<AppError.Conflict>(repo.activate(id, "Admin", "hash").leftOrNull())
+        assertEquals(UserError.NicknameTaken, repo.activate(id, "Admin", "hash").leftOrNull())
     }
 
     @Test
@@ -103,7 +105,7 @@ class PgUserRepositoryTest {
 
         val result = repo.activate(other, "alice", "hash")
 
-        assertIs<AppError.Conflict>(result.leftOrNull())
+        assertEquals(UserError.NicknameTaken, result.leftOrNull())
     }
 
     @Test
@@ -113,7 +115,7 @@ class PgUserRepositoryTest {
         val results = ids.map { id -> async { repo.activate(id, "racer", "hash") } }.awaitAll()
 
         assertEquals(1, results.count { it.isRight() })
-        assertEquals(4, results.count { it.leftOrNull() is AppError.Conflict })
+        assertEquals(4, results.count { it.leftOrNull() == UserError.NicknameTaken })
     }
 
     @Test
@@ -164,8 +166,8 @@ class PgUserRepositoryTest {
         activatedUser("alice")
         val bob = activatedUser("bob")
 
-        assertIs<AppError.Conflict>(repo.updateNickname(bob, "alice").leftOrNull())
-        assertIs<AppError.Conflict>(repo.adminUpdateProfile(bob, "alice", emptyMap()).leftOrNull())
+        assertEquals(UserError.NicknameTaken, repo.updateNickname(bob, "alice").leftOrNull())
+        assertEquals(UserError.NicknameTaken, repo.adminUpdateProfile(bob, "alice", emptyMap()).leftOrNull())
         repo.adminUpdateProfile(bob, "bobby", mapOf("city" to "Osaka")).getOrThrow()
 
         val user = assertNotNull(repo.findById(bob))
@@ -241,7 +243,7 @@ class PgUserRepositoryTest {
         assertEquals(3, repo.listAll().size)
 
         repo.delete(actor, alice).getOrThrow()
-        assertIs<AppError.NotFound>(repo.delete(actor, alice).leftOrNull())
+        assertEquals(UserError.NotFound, repo.delete(actor, alice).leftOrNull())
         assertNull(repo.findById(alice))
     }
 
@@ -250,13 +252,13 @@ class PgUserRepositoryTest {
         val root = activatedUser("root", Role.ADMIN)
         val actor = UUID.randomUUID()
 
-        assertIs<AppError.Conflict>(repo.updateRole(actor, root, Role.USER).leftOrNull())
-        assertIs<AppError.Conflict>(repo.updateStatus(actor, root, Status.FROZEN).leftOrNull())
-        assertIs<AppError.Conflict>(repo.delete(actor, root).leftOrNull())
+        assertEquals(UserError.LastActiveAdmin, repo.updateRole(actor, root, Role.USER).leftOrNull())
+        assertEquals(UserError.LastActiveAdmin, repo.updateStatus(actor, root, Status.FROZEN).leftOrNull())
+        assertEquals(UserError.LastActiveAdmin, repo.delete(actor, root).leftOrNull())
 
         val second = activatedUser("second", Role.ADMIN)
         repo.updateRole(actor, root, Role.USER).getOrThrow()
-        assertIs<AppError.Conflict>(repo.delete(actor, second).leftOrNull())
+        assertEquals(UserError.LastActiveAdmin, repo.delete(actor, second).leftOrNull())
         assertEquals(1, repo.countAdmins())
     }
 
@@ -281,7 +283,7 @@ class PgUserRepositoryTest {
 
         repo.updateRole(root, alice, Role.ADMIN).getOrThrow()
         repo.updateRole(root, alice, Role.USER).getOrThrow()
-        assertIs<AppError.Conflict>(repo.updateRole(alice, root, Role.USER).leftOrNull())
+        assertEquals(UserError.LastActiveAdmin, repo.updateRole(alice, root, Role.USER).leftOrNull())
         repo.recordAdminAction(root, "SET_PASSWORD", alice)
 
         val rows = pool.query("SELECT action FROM admin_audit_log ORDER BY created_at").execute().coAwait()

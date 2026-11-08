@@ -12,6 +12,8 @@ import io.vertx.sqlclient.Tuple
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.DomainError
+import tcg.accumulator.meishiapi.domain.UserError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
@@ -55,7 +57,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         return rows.firstOrNull()?.let(::toAuthRecord)
     }
 
-    override suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit> = either {
+    override suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<DomainError, Unit> = either {
         log.trace("activate user {}", id)
         try {
             val result = pool.preparedQuery(
@@ -70,7 +72,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         } catch (e: PgException) {
             if (e.sqlState == POSTGRES_UNIQUE_VIOLATION) {
                 log.warn("activation of {} failed: nickname already taken", id)
-                raise(AppError.Conflict("nickname already taken"))
+                raise(UserError.NicknameTaken)
             }
             throw e
         }
@@ -121,7 +123,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         return updated
     }
 
-    override suspend fun updateNickname(id: UUID, nickname: String): Either<AppError, Unit> = either {
+    override suspend fun updateNickname(id: UUID, nickname: String): Either<UserError, Unit> = either {
         log.trace("update nickname of {}", id)
         try {
             pool.preparedQuery(
@@ -131,7 +133,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         } catch (e: PgException) {
             if (e.sqlState == POSTGRES_UNIQUE_VIOLATION) {
                 log.warn("nickname update for {} failed: already taken", id)
-                raise(AppError.Conflict("nickname already taken"))
+                raise(UserError.NicknameTaken)
             }
             throw e
         }
@@ -151,7 +153,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         id: UUID,
         nickname: String?,
         fields: Map<String, String?>,
-    ): Either<AppError, Unit> = either {
+    ): Either<UserError, Unit> = either {
         val allFields = if (nickname != null) fields + ("nickname" to nickname) else fields
         if (allFields.isEmpty()) return@either
         log.trace("admin update profile of {} fields={}", id, allFields.keys)
@@ -164,13 +166,13 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         } catch (e: PgException) {
             if (e.sqlState == POSTGRES_UNIQUE_VIOLATION) {
                 log.warn("admin profile update for {} failed: nickname already taken", id)
-                raise(AppError.Conflict("nickname already taken"))
+                raise(UserError.NicknameTaken)
             }
             throw e
         }
     }
 
-    override suspend fun updateRole(actorId: UUID, id: UUID, role: Role): Either<AppError, Unit> =
+    override suspend fun updateRole(actorId: UUID, id: UUID, role: Role): Either<UserError, Unit> =
         guardedAdminMutation(
             actorId, "CHANGE_ROLE", id, JsonObject().put("role", role.name),
             removesActiveAdmin = role != Role.ADMIN,
@@ -178,7 +180,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
             params = Tuple.of(role.name, id),
         )
 
-    override suspend fun updateStatus(actorId: UUID, id: UUID, status: Status): Either<AppError, Unit> =
+    override suspend fun updateStatus(actorId: UUID, id: UUID, status: Status): Either<UserError, Unit> =
         guardedAdminMutation(
             actorId, "CHANGE_STATUS", id, JsonObject().put("status", status.name),
             removesActiveAdmin = status == Status.FROZEN,
@@ -210,7 +212,7 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         ).execute(Tuple.of(id)).coAwait()
     }
 
-    override suspend fun delete(actorId: UUID, id: UUID): Either<AppError, Unit> =
+    override suspend fun delete(actorId: UUID, id: UUID): Either<UserError, Unit> =
         guardedAdminMutation(
             actorId, "DELETE_USER", id, JsonObject(),
             removesActiveAdmin = true,
@@ -280,21 +282,21 @@ class PgUserRepository(private val pool: Pool) : UserRepository {
         removesActiveAdmin: Boolean,
         sql: String,
         params: Tuple,
-    ): Either<AppError, Unit> {
+    ): Either<UserError, Unit> {
         val conn = pool.connection.coAwait()
         try {
             val tx = conn.begin().coAwait()
-            val result = either {
+            val result = either<UserError, Unit> {
                 val activeAdmins = conn.query(
                     "SELECT id FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE' ORDER BY id FOR UPDATE",
                 ).execute().coAwait().map { it.getUUID("id") }
                 if (removesActiveAdmin && id in activeAdmins && activeAdmins.size <= 1) {
                     log.warn("{} on {} by {} rejected: last active admin", action, id, actorId)
-                    raise(AppError.Conflict("cannot remove the last active admin"))
+                    raise(UserError.LastActiveAdmin)
                 }
                 if (conn.preparedQuery(sql).execute(params).coAwait().rowCount() == 0) {
                     log.warn("{} on {} by {}: user not found", action, id, actorId)
-                    raise(AppError.NotFound("user not found"))
+                    raise(UserError.NotFound)
                 }
                 conn.insertAudit(actorId, action, id, details)
                 log.info("admin_action {} {} {}", kv("actorId", actorId), kv("action", action), kv("targetId", id))

@@ -9,7 +9,8 @@ import kotlinx.coroutines.launch
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.domain.AppError
-import tcg.accumulator.meishiapi.domain.DomainError
+import tcg.accumulator.meishiapi.domain.InvalidInput
+import tcg.accumulator.meishiapi.domain.UserError
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User
@@ -71,7 +72,7 @@ class UserHandler(
 
     fun me(ctx: RoutingContext) = respond(ctx) {
         val id = callerId(ctx)
-        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        val user = repository.findById(id) ?: raise(UserError.NotFound)
         log.trace("self lookup for {}", id)
         JsonResult(toJson(user))
     }
@@ -80,7 +81,7 @@ class UserHandler(
         val id = callerId(ctx)
         val body = requiredJsonBody(ctx)
         repository.updateProfile(id, profileFieldsOf(body))
-        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        val user = repository.findById(id) ?: raise(UserError.NotFound)
         log.trace("self profile update for {}", id)
         JsonResult(toJson(user))
     }
@@ -90,10 +91,10 @@ class UserHandler(
         val body = requiredJsonBody(ctx)
         val nickname = validNickname(
             stringField(body, "nickname")?.takeIf { it.isNotBlank() }
-                ?: raise(AppError.BadRequest("nickname required")),
+                ?: raise(InvalidInput("nickname required")),
         )
         repository.updateNickname(id, nickname).bind()
-        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        val user = repository.findById(id) ?: raise(UserError.NotFound)
         log.info("nickname_changed {}", kv("userId", id))
         JsonResult(toJson(user))
     }
@@ -102,21 +103,21 @@ class UserHandler(
         val id = callerId(ctx)
         val body = requiredJsonBody(ctx)
         val oldPassword = stringField(body, "oldPassword")?.takeIf { it.isNotBlank() }
-            ?: raise(AppError.BadRequest("oldPassword required"))
+            ?: raise(InvalidInput("oldPassword required"))
         val newPassword = validPassword(
             stringField(body, "newPassword")?.takeIf { it.isNotBlank() }
-                ?: raise(AppError.BadRequest("newPassword required")),
+                ?: raise(InvalidInput("newPassword required")),
             "newPassword",
         )
-        val record = repository.findAuthRecordById(id) ?: raise(AppError.NotFound("user not found"))
+        val record = repository.findAuthRecordById(id) ?: raise(UserError.NotFound)
         if (record.isLocked) {
             security.warn("password_change_failed {} {}", kv("reason", "locked"), kv("userId", id))
-            raise(AppError.Unauthorized("incorrect password"))
+            raise(UserError.IncorrectPassword)
         }
         if (!hasher.verify(record.passwordHash, oldPassword)) {
             repository.registerFailedLoginAttempt(id)
             security.warn("password_change_failed {} {}", kv("reason", "bad_password"), kv("userId", id))
-            raise(AppError.Unauthorized("incorrect password"))
+            raise(UserError.IncorrectPassword)
         }
         repository.updatePassword(id, hasher.hash(newPassword))
         repository.resetFailedLoginAttempts(id)
@@ -127,7 +128,7 @@ class UserHandler(
     fun requestDeletion(ctx: RoutingContext) = respond(ctx) {
         val id = callerId(ctx)
         repository.requestDeletion(id)
-        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        val user = repository.findById(id) ?: raise(UserError.NotFound)
         log.info("user {} requested account deletion", id)
         JsonResult(toJson(user))
     }
@@ -135,7 +136,7 @@ class UserHandler(
     fun cancelDeletionRequest(ctx: RoutingContext) = respond(ctx) {
         val id = callerId(ctx)
         repository.cancelDeletionRequest(id)
-        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        val user = repository.findById(id) ?: raise(UserError.NotFound)
         log.info("user {} cancelled deletion request", id)
         JsonResult(toJson(user))
     }
@@ -157,7 +158,7 @@ class UserHandler(
     fun create(ctx: RoutingContext) = respond(ctx) {
         val body = jsonBodyOrNull(ctx) ?: JsonObject()
         val role = stringField(body, "role")?.let {
-            parseEnumOrNull<Role>(it) ?: raise(AppError.BadRequest("role must be USER or ADMIN"))
+            parseEnumOrNull<Role>(it) ?: raise(InvalidInput("role must be USER or ADMIN"))
         } ?: Role.USER
         val (id, activationKey) = repository.create(role)
         log.info("created user {} with role {}", id, role)
@@ -168,9 +169,9 @@ class UserHandler(
         val id = pathId(ctx)
         val body = requiredJsonBody(ctx)
         val role = parseEnumOrNull<Role>(stringField(body, "role"))
-            ?: raise(AppError.BadRequest("role must be USER or ADMIN"))
+            ?: raise(InvalidInput("role must be USER or ADMIN"))
         val actorId = callerId(ctx)
-        if (id == actorId && role != Role.ADMIN) raise(AppError.Conflict("cannot demote yourself"))
+        if (id == actorId && role != Role.ADMIN) raise(UserError.CannotDemoteSelf)
         repository.updateRole(actorId, id, role).bind()
         NoContentResult()
     }
@@ -179,9 +180,9 @@ class UserHandler(
         val id = pathId(ctx)
         val body = requiredJsonBody(ctx)
         val status = parseEnumOrNull<Status>(stringField(body, "status"))
-            ?: raise(AppError.BadRequest("status must be ACTIVE or FROZEN"))
+            ?: raise(InvalidInput("status must be ACTIVE or FROZEN"))
         val actorId = callerId(ctx)
-        if (id == actorId && status == Status.FROZEN) raise(AppError.Conflict("cannot freeze yourself"))
+        if (id == actorId && status == Status.FROZEN) raise(UserError.CannotFreezeSelf)
         repository.updateStatus(actorId, id, status).bind()
         NoContentResult()
     }
@@ -192,13 +193,13 @@ class UserHandler(
         val nickname = if (body.containsKey("nickname")) {
             validNickname(
                 stringField(body, "nickname")?.takeIf { it.isNotBlank() }
-                    ?: raise(AppError.BadRequest("nickname must not be blank")),
+                    ?: raise(InvalidInput("nickname must not be blank")),
             )
         } else {
             null
         }
         repository.adminUpdateProfile(id, nickname, profileFieldsOf(body)).bind()
-        val user = repository.findById(id) ?: raise(AppError.NotFound("user not found"))
+        val user = repository.findById(id) ?: raise(UserError.NotFound)
         log.info("admin updated profile for user {}", id)
         JsonResult(toJson(user))
     }
@@ -208,11 +209,11 @@ class UserHandler(
         val body = requiredJsonBody(ctx)
         val newPassword = validPassword(
             stringField(body, "newPassword")?.takeIf { it.isNotBlank() }
-                ?: raise(AppError.BadRequest("newPassword required")),
+                ?: raise(InvalidInput("newPassword required")),
             "newPassword",
         )
         if (!repository.updatePassword(id, hasher.hash(newPassword))) {
-            raise(AppError.NotFound("user not found"))
+            raise(UserError.NotFound)
         }
         repository.recordAdminAction(callerId(ctx), "SET_PASSWORD", id)
         log.info("admin set password for user {}", id)
@@ -222,7 +223,7 @@ class UserHandler(
     fun delete(ctx: RoutingContext) = respond(ctx) {
         val id = pathId(ctx)
         val actorId = callerId(ctx)
-        if (id == actorId) raise(AppError.Conflict("cannot delete yourself"))
+        if (id == actorId) raise(UserError.CannotDeleteSelf)
         repository.delete(actorId, id).bind()
         NoContentResult()
     }
@@ -230,8 +231,8 @@ class UserHandler(
     private fun Raise<AppError>.callerId(ctx: RoutingContext): UUID =
         ctx.get<UUID?>(CALLER_ID_KEY) ?: raise(AppError.Unauthorized("unauthenticated"))
 
-    private fun Raise<AppError>.pathId(ctx: RoutingContext): UUID =
-        parseUuidOrNull(ctx.pathParam("id")) ?: raise(AppError.BadRequest("invalid id"))
+    private fun Raise<InvalidInput>.pathId(ctx: RoutingContext): UUID =
+        parseUuidOrNull(ctx.pathParam("id")) ?: raise(InvalidInput("invalid id"))
 
     private val profileFieldColumns = mapOf(
         "email" to "email",
@@ -247,7 +248,7 @@ class UserHandler(
         "discordName" to "discord_name",
     )
 
-    private fun Raise<DomainError>.profileFieldsOf(body: JsonObject): Map<String, String?> =
+    private fun Raise<InvalidInput>.profileFieldsOf(body: JsonObject): Map<String, String?> =
         profileFieldColumns.entries
             .filter { (jsonKey, _) -> body.containsKey(jsonKey) }
             .associate { (jsonKey, column) -> column to stringField(body, jsonKey) }
@@ -255,7 +256,7 @@ class UserHandler(
                 validProfileFields(fields)
                 fields["discord_name"]?.let {
                     if (!DISCORD_NAME_PATTERN.matches(it)) {
-                        raise(AppError.BadRequest("discordName must be 2-32 characters of a-z, 0-9, _ or ."))
+                        raise(InvalidInput("discordName must be 2-32 characters of a-z, 0-9, _ or ."))
                     }
                 }
             }

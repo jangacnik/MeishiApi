@@ -3,6 +3,8 @@ package tcg.accumulator.meishiapi.repository
 import arrow.core.Either
 import arrow.core.raise.either
 import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.DomainError
+import tcg.accumulator.meishiapi.domain.UserError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
@@ -61,11 +63,11 @@ class FakeUserRepository : UserRepository {
     override suspend fun findByNickname(nickname: String): AuthRecord? =
         byId.values.firstOrNull { it.nickname == nickname }?.toAuthRecord()
 
-    override suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<AppError, Unit> = either {
+    override suspend fun activate(id: UUID, nickname: String, passwordHash: String): Either<DomainError, Unit> = either {
         val record = byId.getValue(id)
         if (record.activatedAt != null) raise(AppError.Conflict("invalid activation key"))
         if (byId.values.any { it.nickname.equals(nickname, ignoreCase = true) && it.id != id }) {
-            raise(AppError.Conflict("nickname already taken"))
+            raise(UserError.NicknameTaken)
         }
         record.nickname = nickname
         record.passwordHash = passwordHash
@@ -84,10 +86,10 @@ class FakeUserRepository : UserRepository {
         byId.values.filter { it.activatedAt != null }.sortedBy { it.createdAt }
             .map { NicknameEntry(it.id, checkNotNull(it.nickname)) }
 
-    override suspend fun updateRole(actorId: UUID, id: UUID, role: Role): Either<AppError, Unit> =
+    override suspend fun updateRole(actorId: UUID, id: UUID, role: Role): Either<UserError, Unit> =
         adminMutation(actorId, "CHANGE_ROLE", id, removesActiveAdmin = role != Role.ADMIN) { it.role = role }
 
-    override suspend fun updateStatus(actorId: UUID, id: UUID, status: Status): Either<AppError, Unit> =
+    override suspend fun updateStatus(actorId: UUID, id: UUID, status: Status): Either<UserError, Unit> =
         adminMutation(actorId, "CHANGE_STATUS", id, removesActiveAdmin = status == Status.FROZEN) {
             it.status = status
             it.failedLoginAttempts = 0
@@ -100,12 +102,12 @@ class FakeUserRepository : UserRepository {
         id: UUID,
         removesActiveAdmin: Boolean,
         mutate: (Record) -> Unit,
-    ): Either<AppError, Unit> = either {
-        val record = byId[id] ?: raise(AppError.NotFound("user not found"))
+    ): Either<UserError, Unit> = either {
+        val record = byId[id] ?: raise(UserError.NotFound)
         val activeAdmins = byId.values.count { it.role == Role.ADMIN && it.status == Status.ACTIVE }
         val isActiveAdmin = record.role == Role.ADMIN && record.status == Status.ACTIVE
         if (removesActiveAdmin && isActiveAdmin && activeAdmins <= 1) {
-            raise(AppError.Conflict("cannot remove the last active admin"))
+            raise(UserError.LastActiveAdmin)
         }
         mutate(record)
         audit += AuditEntry(actorId, action, id)
@@ -117,9 +119,9 @@ class FakeUserRepository : UserRepository {
         return true
     }
 
-    override suspend fun updateNickname(id: UUID, nickname: String): Either<AppError, Unit> = either {
+    override suspend fun updateNickname(id: UUID, nickname: String): Either<UserError, Unit> = either {
         if (byId.values.any { it.nickname.equals(nickname, ignoreCase = true) && it.id != id }) {
-            raise(AppError.Conflict("nickname already taken"))
+            raise(UserError.NicknameTaken)
         }
         byId.getValue(id).nickname = nickname
     }
@@ -134,9 +136,9 @@ class FakeUserRepository : UserRepository {
         id: UUID,
         nickname: String?,
         fields: Map<String, String?>,
-    ): Either<AppError, Unit> = either {
+    ): Either<UserError, Unit> = either {
         if (nickname != null && byId.values.any { it.nickname.equals(nickname, ignoreCase = true) && it.id != id }) {
-            raise(AppError.Conflict("nickname already taken"))
+            raise(UserError.NicknameTaken)
         }
         val record = byId[id] ?: return@either
         if (nickname != null) record.nickname = nickname
@@ -185,7 +187,7 @@ class FakeUserRepository : UserRepository {
         byId.getValue(id).lockedUntil = OffsetDateTime.now().minusSeconds(1)
     }
 
-    override suspend fun delete(actorId: UUID, id: UUID): Either<AppError, Unit> =
+    override suspend fun delete(actorId: UUID, id: UUID): Either<UserError, Unit> =
         adminMutation(actorId, "DELETE_USER", id, removesActiveAdmin = true) { byId.remove(id) }
 
     override suspend fun recordAdminAction(actorId: UUID, action: String, targetId: UUID) {
