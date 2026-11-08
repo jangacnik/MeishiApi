@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
-import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.OAuthError
 import tcg.accumulator.meishiapi.logging.describe
 import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.repository.UserRepository
@@ -64,7 +64,7 @@ fun buildRouter(
         router.post("/api/oauth/authorize").handler(jwtAuthHandler).handler(users::loadCaller).handler(oauth::authorize)
         router.post("/api/oauth/token").handler(limitOAuthRate).handler(oauth::token)
     } else {
-        router.route("/api/oauth/*").handler { ctx -> respond(ctx) { raise(AppError.NotFound("oauth_disabled")) } }
+        router.route("/api/oauth/*").handler { ctx -> respond(ctx) { raise(OAuthError.Disabled) } }
     }
 
     router.route("/api/users*").handler(jwtAuthHandler)

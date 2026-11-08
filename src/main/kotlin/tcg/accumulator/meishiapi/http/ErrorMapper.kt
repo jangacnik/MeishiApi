@@ -4,6 +4,7 @@ import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.domain.AuthError
 import tcg.accumulator.meishiapi.domain.DomainError
 import tcg.accumulator.meishiapi.domain.InvalidInput
+import tcg.accumulator.meishiapi.domain.OAuthError
 import tcg.accumulator.meishiapi.domain.UserError
 
 /** What a failed request looks like on the wire: `{"error": message}` with [status], plus `Retry-After` when set. */
@@ -21,6 +22,15 @@ fun DomainError.toHttpFailure(): HttpFailure = when (this) {
     AuthError.InvalidCredentials -> HttpFailure(401, "invalid nickname or password")
     AuthError.Unauthenticated -> HttpFailure(401, "unauthenticated")
     is AuthError.ActivatedUserWithoutNickname -> HttpFailure(500, "activated user $userId has no nickname")
+    OAuthError.Disabled -> HttpFailure(404, "oauth_disabled")
+    OAuthError.InvalidClient -> HttpFailure(400, "invalid_client")
+    OAuthError.InvalidRedirectUri -> HttpFailure(400, "invalid_redirect_uri")
+    OAuthError.InvalidReturnUri -> HttpFailure(400, "invalid_return_uri")
+    OAuthError.UnsupportedResponseType -> HttpFailure(400, "unsupported_response_type")
+    OAuthError.UnsupportedGrantType -> HttpFailure(400, "unsupported_grant_type")
+    OAuthError.InvalidRequest -> HttpFailure(400, "invalid_request")
+    OAuthError.InvalidGrant -> HttpFailure(400, "invalid_grant")
+    OAuthError.Unauthorized -> HttpFailure(401, "unauthorized")
     UserError.NotFound -> HttpFailure(404, "user not found")
     UserError.NicknameTaken -> HttpFailure(409, "nickname already taken")
     UserError.IncorrectPassword -> HttpFailure(401, "incorrect password")

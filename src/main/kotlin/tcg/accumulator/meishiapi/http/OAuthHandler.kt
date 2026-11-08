@@ -5,6 +5,7 @@ import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.OAuthError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.model.Status
@@ -27,8 +28,6 @@ const val AUTHORIZE_REQUESTS_PER_MINUTE = 30
 /** Per client IP for the unauthenticated `/api/oauth/client` and `/api/oauth/token`. Token calls come from app servers,
  *  so one bucket covers all users of an app: this caps abuse without throttling normal logins. */
 const val OAUTH_REQUESTS_PER_MINUTE = 60
-private const val INVALID_REQUEST = "invalid_request"
-private const val INVALID_GRANT = "invalid_grant"
 
 /** Authorization-code flow with mandatory PKCE for registered first-party clients; see docs/adr-meishi-identity-provider.md. */
 class OAuthHandler(
@@ -45,28 +44,28 @@ class OAuthHandler(
         val redirectUri = ctx.request().getParam("redirect_uri")
         val returnUri = ctx.request().getParam("return_uri")
         if (redirectUri != null) requireRegisteredRedirectUri(client, redirectUri)
-        if (returnUri != null && returnUri !in client.returnUris) raise(AppError.BadRequest("invalid_return_uri"))
+        if (returnUri != null && returnUri !in client.returnUris) raise(OAuthError.InvalidReturnUri)
         JsonResult(JsonObject().put("clientId", client.id).put("name", client.name))
     }
 
     fun authorize(ctx: RoutingContext) = respond(ctx) {
         ctx.response().putHeader("Cache-Control", "no-store").putHeader("Pragma", "no-cache")
         val body = requiredJsonBody(ctx)
-        if (stringField(body, "response_type") != "code") raise(AppError.BadRequest("unsupported_response_type"))
+        if (stringField(body, "response_type") != "code") raise(OAuthError.UnsupportedResponseType)
         val client = registeredClient(stringField(body, "client_id"))
         val redirectUri = requireRegisteredRedirectUri(client, stringField(body, "redirect_uri"))
         val state = stringField(body, "state")?.takeIf { it.isNotEmpty() && it.length <= MAX_STATE_LENGTH }
-            ?: raise(AppError.BadRequest(INVALID_REQUEST))
+            ?: raise(OAuthError.InvalidRequest)
         val challenge = stringField(body, "code_challenge")?.takeIf(::isValidCodeChallenge)
-            ?: raise(AppError.BadRequest(INVALID_REQUEST))
-        if (stringField(body, "code_challenge_method") != "S256") raise(AppError.BadRequest(INVALID_REQUEST))
+            ?: raise(OAuthError.InvalidRequest)
+        if (stringField(body, "code_challenge_method") != "S256") raise(OAuthError.InvalidRequest)
 
-        val user = ctx.user() ?: raise(AppError.Unauthorized("unauthorized"))
-        val userId = jwt.subjectOf(user.principal()) ?: raise(AppError.Unauthorized("unauthorized"))
+        val user = ctx.user() ?: raise(OAuthError.Unauthorized)
+        val userId = jwt.subjectOf(user.principal()) ?: raise(OAuthError.Unauthorized)
         val retryAfterSeconds = authorizeLimiter.tryAcquire(userId.toString())
         if (retryAfterSeconds > 0) raise(AppError.TooManyRequests("too many requests", retryAfterSeconds))
-        if (!canSignIn(repository.findAuthRecordById(userId))) raise(AppError.Unauthorized("unauthorized"))
-        val sessionExpiry = user.attributes().getLong("exp") ?: raise(AppError.Unauthorized("unauthorized"))
+        if (!canSignIn(repository.findAuthRecordById(userId))) raise(OAuthError.Unauthorized)
+        val sessionExpiry = user.attributes().getLong("exp") ?: raise(OAuthError.Unauthorized)
         val sessionExpiresAt = Instant.ofEpochSecond(sessionExpiry).atOffset(ZoneOffset.UTC)
 
         val code = newAuthorizationCode()
@@ -83,24 +82,24 @@ class OAuthHandler(
     fun token(ctx: RoutingContext) = respond(ctx) {
         ctx.response().putHeader("Cache-Control", "no-store").putHeader("Pragma", "no-cache")
         val form = ctx.request().formAttributes()
-        if (form.get("grant_type") != "authorization_code") raise(AppError.BadRequest("unsupported_grant_type"))
-        val code = form.get("code") ?: raise(AppError.BadRequest(INVALID_GRANT))
+        if (form.get("grant_type") != "authorization_code") raise(OAuthError.UnsupportedGrantType)
+        val code = form.get("code") ?: raise(OAuthError.InvalidGrant)
         val grant = repository.consumeAuthorizationCode(hashAuthorizationCode(code))
-            ?: raise(AppError.BadRequest(INVALID_GRANT))
+            ?: raise(OAuthError.InvalidGrant)
         val exchangeMatches = grant.clientId == form.get("client_id") &&
             grant.clientId in clientsById &&
             grant.redirectUri == form.get("redirect_uri") &&
             pkceMatches(form.get("code_verifier"), grant.codeChallenge)
         if (!exchangeMatches) {
             log.warn("rejected authorization code for user {}: client, redirect uri or verifier mismatch", grant.userId)
-            raise(AppError.BadRequest(INVALID_GRANT))
+            raise(OAuthError.InvalidGrant)
         }
 
         val record = repository.findAuthRecordById(grant.userId)?.takeIf(::canSignIn)
-            ?: raise(AppError.BadRequest(INVALID_GRANT))
-        val nickname = record.nickname ?: raise(AppError.BadRequest(INVALID_GRANT))
+            ?: raise(OAuthError.InvalidGrant)
+        val nickname = record.nickname ?: raise(OAuthError.InvalidGrant)
         val lifetimeSeconds = grant.sessionExpiresAt.toEpochSecond() - OffsetDateTime.now().toEpochSecond()
-        if (lifetimeSeconds <= 0) raise(AppError.BadRequest(INVALID_GRANT))
+        if (lifetimeSeconds <= 0) raise(OAuthError.InvalidGrant)
 
         log.info("exchanged authorization code for user {} at client {}", record.id, grant.clientId)
         JsonResult(
@@ -115,11 +114,11 @@ class OAuthHandler(
     private fun canSignIn(record: AuthRecord?): Boolean =
         record != null && record.activatedAt != null && record.status == Status.ACTIVE && !record.isLocked
 
-    private fun Raise<AppError>.registeredClient(id: String?): OAuthClient =
-        id?.let { clientsById[it] } ?: raise(AppError.BadRequest("invalid_client"))
+    private fun Raise<OAuthError>.registeredClient(id: String?): OAuthClient =
+        id?.let { clientsById[it] } ?: raise(OAuthError.InvalidClient)
 
-    private fun Raise<AppError>.requireRegisteredRedirectUri(client: OAuthClient, redirectUri: String?): String =
-        redirectUri?.takeIf { it in client.redirectUris } ?: raise(AppError.BadRequest("invalid_redirect_uri"))
+    private fun Raise<OAuthError>.requireRegisteredRedirectUri(client: OAuthClient, redirectUri: String?): String =
+        redirectUri?.takeIf { it in client.redirectUris } ?: raise(OAuthError.InvalidRedirectUri)
 
     private fun redirectUrl(redirectUri: String, code: String, state: String): String {
         val separator = if ('?' in redirectUri) '&' else '?'

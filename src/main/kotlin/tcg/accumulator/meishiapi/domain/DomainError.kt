@@ -22,6 +22,19 @@ sealed interface AuthError : DomainError {
     data class ActivatedUserWithoutNickname(val userId: UUID) : AuthError
 }
 
+/** The authorization-code flow for first-party apps. The cases are the RFC 6749 error codes, plus [Disabled] for the kill switch. */
+sealed interface OAuthError : DomainError {
+    data object Disabled : OAuthError
+    data object InvalidClient : OAuthError
+    data object InvalidRedirectUri : OAuthError
+    data object InvalidReturnUri : OAuthError
+    data object UnsupportedResponseType : OAuthError
+    data object UnsupportedGrantType : OAuthError
+    data object InvalidRequest : OAuthError
+    data object InvalidGrant : OAuthError
+    data object Unauthorized : OAuthError
+}
+
 /** Users and profiles: self-service changes and the admin operations on other accounts. */
 sealed interface UserError : DomainError {
     data object NotFound : UserError
