@@ -36,6 +36,16 @@ private const val INVALID_CREDENTIALS = "invalid nickname or password"
 private const val NICKNAME_RULE = "nickname must be 3-64 characters of A-Z, a-z, 0-9, space, _, . or -"
 private const val PASSWORD_RULE = "must be 12-128 characters"
 
+private fun assertRejected(response: HttpResponse<Buffer>, status: Int, error: String) {
+    assertEquals(status, response.statusCode())
+    assertEquals("application/json", response.getHeader("content-type"))
+    assertEquals(JsonObject().put("error", error), response.bodyAsJsonObject())
+}
+
+private fun withoutProfiles(repo: UserRepository): UserRepository = object : UserRepository by repo {
+    override suspend fun findById(id: UUID): User? = null
+}
+
 /**
  * Pins every error response the API can produce today: status, the `error` text and the exact JSON body.
  * It exists so the error handling can be restructured without changing what clients see.
@@ -60,7 +70,7 @@ class ErrorResponsesTest {
             return if (body == null) request.send().coAwait() else request.sendJsonObject(body).coAwait()
         }
 
-        suspend fun expect(
+        suspend fun expectError(
             status: Int,
             error: String,
             method: HttpMethod,
@@ -68,12 +78,6 @@ class ErrorResponsesTest {
             body: JsonObject? = null,
             token: String? = null,
         ) = assertRejected(send(method, path, body, token), status, error)
-    }
-
-    private fun assertRejected(response: HttpResponse<Buffer>, status: Int, error: String) {
-        assertEquals(status, response.statusCode())
-        assertEquals("application/json", response.getHeader("content-type"))
-        assertEquals(JsonObject().put("error", error), response.bodyAsJsonObject())
     }
 
     private suspend fun harness(
@@ -112,34 +116,34 @@ class ErrorResponsesTest {
 
     @Test
     fun `no token is a 401 unauthorized`(vertx: Vertx) = case(vertx) {
-        expect(401, "unauthorized", HttpMethod.GET, "/api/users/me")
+        expectError(401, "unauthorized", HttpMethod.GET, "/api/users/me")
     }
 
     @Test
     fun `a garbage token is a 401 unauthorized`(vertx: Vertx) = case(vertx) {
-        expect(401, "unauthorized", HttpMethod.GET, "/api/users/me", token = "not-a-jwt")
+        expectError(401, "unauthorized", HttpMethod.GET, "/api/users/me", token = "not-a-jwt")
     }
 
     @Test
     fun `a token for a deleted user is a 401 unauthorized`(vertx: Vertx) = case(vertx) {
         repo.delete(adminId, userId)
-        expect(401, "unauthorized", HttpMethod.GET, "/api/users/me", token = userToken)
+        expectError(401, "unauthorized", HttpMethod.GET, "/api/users/me", token = userToken)
     }
 
     @Test
     fun `a token for a frozen user is a 401 unauthorized`(vertx: Vertx) = case(vertx) {
         repo.updateStatus(adminId, userId, Status.FROZEN)
-        expect(401, "unauthorized", HttpMethod.GET, "/api/users/me", token = userToken)
+        expectError(401, "unauthorized", HttpMethod.GET, "/api/users/me", token = userToken)
     }
 
     @Test
     fun `a member on an admin route is a 403 forbidden`(vertx: Vertx) = case(vertx) {
-        expect(403, "forbidden", HttpMethod.GET, "/api/users", token = userToken)
+        expectError(403, "forbidden", HttpMethod.GET, "/api/users", token = userToken)
     }
 
     @Test
     fun `an unknown route is a 404 not found`(vertx: Vertx) = case(vertx) {
-        expect(404, "not found", HttpMethod.GET, "/nope")
+        expectError(404, "not found", HttpMethod.GET, "/nope")
     }
 
     @Test
@@ -192,57 +196,57 @@ class ErrorResponsesTest {
 
     @Test
     fun `register without a body`(vertx: Vertx) = case(vertx) {
-        expect(400, "request body required", HttpMethod.POST, POST_REGISTER)
+        expectError(400, "request body required", HttpMethod.POST, POST_REGISTER)
     }
 
     @Test
     fun `register with a non-string nickname`(vertx: Vertx) = case(vertx) {
-        expect(400, "nickname must be a string", HttpMethod.POST, POST_REGISTER, registerBody().put("nickname", 123))
+        expectError(400, "nickname must be a string", HttpMethod.POST, POST_REGISTER, registerBody().put("nickname", 123))
     }
 
     @Test
     fun `register with a non-string activation key`(vertx: Vertx) = case(vertx) {
-        expect(400, "activationKey must be a string", HttpMethod.POST, POST_REGISTER, registerBody().put("activationKey", 1))
+        expectError(400, "activationKey must be a string", HttpMethod.POST, POST_REGISTER, registerBody().put("activationKey", 1))
     }
 
     @Test
     fun `register without an activation key`(vertx: Vertx) = case(vertx) {
-        expect(400, "invalid activationKey", HttpMethod.POST, POST_REGISTER, registerBody().apply { remove("activationKey") })
+        expectError(400, "invalid activationKey", HttpMethod.POST, POST_REGISTER, registerBody().apply { remove("activationKey") })
     }
 
     @Test
     fun `register with a malformed activation key`(vertx: Vertx) = case(vertx) {
-        expect(400, "invalid activationKey", HttpMethod.POST, POST_REGISTER, registerBody().put("activationKey", "not-a-uuid"))
+        expectError(400, "invalid activationKey", HttpMethod.POST, POST_REGISTER, registerBody().put("activationKey", "not-a-uuid"))
     }
 
     @Test
     fun `register without a nickname`(vertx: Vertx) = case(vertx) {
-        expect(400, "nickname required", HttpMethod.POST, POST_REGISTER, registerBody().apply { remove("nickname") })
+        expectError(400, "nickname required", HttpMethod.POST, POST_REGISTER, registerBody().apply { remove("nickname") })
     }
 
     @Test
     fun `register with a blank nickname`(vertx: Vertx) = case(vertx) {
-        expect(400, "nickname required", HttpMethod.POST, POST_REGISTER, registerBody().put("nickname", "  "))
+        expectError(400, "nickname required", HttpMethod.POST, POST_REGISTER, registerBody().put("nickname", "  "))
     }
 
     @Test
     fun `register with an invalid nickname`(vertx: Vertx) = case(vertx) {
-        expect(400, NICKNAME_RULE, HttpMethod.POST, POST_REGISTER, registerBody().put("nickname", "no!"))
+        expectError(400, NICKNAME_RULE, HttpMethod.POST, POST_REGISTER, registerBody().put("nickname", "no!"))
     }
 
     @Test
     fun `register without a password`(vertx: Vertx) = case(vertx) {
-        expect(400, "password required", HttpMethod.POST, POST_REGISTER, registerBody().apply { remove("password") })
+        expectError(400, "password required", HttpMethod.POST, POST_REGISTER, registerBody().apply { remove("password") })
     }
 
     @Test
     fun `register with a short password`(vertx: Vertx) = case(vertx) {
-        expect(400, "password $PASSWORD_RULE", HttpMethod.POST, POST_REGISTER, registerBody().put("password", "short"))
+        expectError(400, "password $PASSWORD_RULE", HttpMethod.POST, POST_REGISTER, registerBody().put("password", "short"))
     }
 
     @Test
     fun `register with an unknown activation key`(vertx: Vertx) = case(vertx) {
-        expect(409, "invalid activation key", HttpMethod.POST, POST_REGISTER, registerBody())
+        expectError(409, "invalid activation key", HttpMethod.POST, POST_REGISTER, registerBody())
     }
 
     @Test
@@ -250,82 +254,82 @@ class ErrorResponsesTest {
         val (_, key) = repo.create(Role.USER)
         assertEquals(200, send(HttpMethod.POST, POST_REGISTER, registerBody(key)).statusCode())
 
-        expect(409, "invalid activation key", HttpMethod.POST, POST_REGISTER, registerBody(key).put("nickname", "alice2"))
+        expectError(409, "invalid activation key", HttpMethod.POST, POST_REGISTER, registerBody(key).put("nickname", "alice2"))
     }
 
     @Test
     fun `register with a nickname that is taken`(vertx: Vertx) = case(vertx) {
         val (_, key) = repo.create(Role.USER)
-        expect(409, "nickname already taken", HttpMethod.POST, POST_REGISTER, registerBody(key).put("nickname", "BOB"))
+        expectError(409, "nickname already taken", HttpMethod.POST, POST_REGISTER, registerBody(key).put("nickname", "BOB"))
     }
 
     // Login.
 
     @Test
     fun `login without a body`(vertx: Vertx) = case(vertx) {
-        expect(400, "request body required", HttpMethod.POST, POST_LOGIN)
+        expectError(400, "request body required", HttpMethod.POST, POST_LOGIN)
     }
 
     @Test
     fun `login without a nickname`(vertx: Vertx) = case(vertx) {
-        expect(400, "nickname required", HttpMethod.POST, POST_LOGIN, JsonObject().put("password", PASSWORD))
+        expectError(400, "nickname required", HttpMethod.POST, POST_LOGIN, JsonObject().put("password", PASSWORD))
     }
 
     @Test
     fun `login without a password`(vertx: Vertx) = case(vertx) {
-        expect(400, "password required", HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob"))
+        expectError(400, "password required", HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob"))
     }
 
     @Test
     fun `login as an unknown account`(vertx: Vertx) = case(vertx) {
-        expect(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "ghost").put("password", PASSWORD))
+        expectError(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "ghost").put("password", PASSWORD))
     }
 
     @Test
     fun `login with the wrong password`(vertx: Vertx) = case(vertx) {
         repo.updatePassword(userId, hasher.hash(PASSWORD))
-        expect(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", NEW_PASSWORD))
+        expectError(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", NEW_PASSWORD))
     }
 
     @Test
     fun `login to a frozen account with the right password`(vertx: Vertx) = case(vertx) {
         repo.updatePassword(userId, hasher.hash(PASSWORD))
         repo.updateStatus(adminId, userId, Status.FROZEN)
-        expect(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", PASSWORD))
+        expectError(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", PASSWORD))
     }
 
     @Test
     fun `login to a locked account with the right password`(vertx: Vertx) = case(vertx) {
         repo.updatePassword(userId, hasher.hash(PASSWORD))
         repeat(LOCK_AFTER_FAILED_ATTEMPTS) { repo.registerFailedLoginAttempt(userId) }
-        expect(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", PASSWORD))
+        expectError(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", PASSWORD))
     }
 
     // Self-service.
 
     @Test
     fun `profile update without a body`(vertx: Vertx) = case(vertx) {
-        expect(400, "request body required", HttpMethod.PATCH, "/api/users/me", token = userToken)
+        expectError(400, "request body required", HttpMethod.PATCH, "/api/users/me", token = userToken)
     }
 
     @Test
     fun `profile update with a non-string field`(vertx: Vertx) = case(vertx) {
-        expect(400, "email must be a string", HttpMethod.PATCH, "/api/users/me", JsonObject().put("email", 123), userToken)
+        expectError(400, "email must be a string", HttpMethod.PATCH, "/api/users/me", JsonObject().put("email", 123), userToken)
     }
 
     @Test
     fun `profile update with an invalid email`(vertx: Vertx) = case(vertx) {
-        expect(400, "email is not a valid address", HttpMethod.PATCH, "/api/users/me", JsonObject().put("email", "nope"), userToken)
+        expectError(400, "email is not a valid address", HttpMethod.PATCH, "/api/users/me", JsonObject().put("email", "nope"), userToken)
     }
 
     @Test
     fun `profile update with an over-long field`(vertx: Vertx) = case(vertx) {
-        expect(400, "city must be at most 64 characters", HttpMethod.PATCH, "/api/users/me", JsonObject().put("city", "x".repeat(65)), userToken)
+        expectError(400, "city must be at most 64 characters", HttpMethod.PATCH, "/api/users/me", JsonObject().put("city", "x".repeat(65)), userToken)
     }
 
     @Test
     fun `profile update with an invalid discord name`(vertx: Vertx) = case(vertx) {
-        expect(
+        expectError(
             400, "discordName must be 2-32 characters of a-z, 0-9, _ or .",
             HttpMethod.PATCH, "/api/users/me", JsonObject().put("discordName", "Bad Name"), userToken,
         )
@@ -333,32 +337,32 @@ class ErrorResponsesTest {
 
     @Test
     fun `nickname change without a nickname`(vertx: Vertx) = case(vertx) {
-        expect(400, "nickname required", HttpMethod.PATCH, "/api/users/me/nickname", JsonObject(), userToken)
+        expectError(400, "nickname required", HttpMethod.PATCH, "/api/users/me/nickname", JsonObject(), userToken)
     }
 
     @Test
     fun `nickname change to an invalid nickname`(vertx: Vertx) = case(vertx) {
-        expect(400, NICKNAME_RULE, HttpMethod.PATCH, "/api/users/me/nickname", JsonObject().put("nickname", "x"), userToken)
+        expectError(400, NICKNAME_RULE, HttpMethod.PATCH, "/api/users/me/nickname", JsonObject().put("nickname", "x"), userToken)
     }
 
     @Test
     fun `nickname change to a taken nickname`(vertx: Vertx) = case(vertx) {
-        expect(409, "nickname already taken", HttpMethod.PATCH, "/api/users/me/nickname", JsonObject().put("nickname", "root"), userToken)
+        expectError(409, "nickname already taken", HttpMethod.PATCH, "/api/users/me/nickname", JsonObject().put("nickname", "root"), userToken)
     }
 
     @Test
     fun `password change without the old password`(vertx: Vertx) = case(vertx) {
-        expect(400, "oldPassword required", HttpMethod.PATCH, "/api/users/me/password", JsonObject().put("newPassword", NEW_PASSWORD), userToken)
+        expectError(400, "oldPassword required", HttpMethod.PATCH, "/api/users/me/password", JsonObject().put("newPassword", NEW_PASSWORD), userToken)
     }
 
     @Test
     fun `password change without the new password`(vertx: Vertx) = case(vertx) {
-        expect(400, "newPassword required", HttpMethod.PATCH, "/api/users/me/password", JsonObject().put("oldPassword", PASSWORD), userToken)
+        expectError(400, "newPassword required", HttpMethod.PATCH, "/api/users/me/password", JsonObject().put("oldPassword", PASSWORD), userToken)
     }
 
     @Test
     fun `password change to a short password`(vertx: Vertx) = case(vertx) {
-        expect(
+        expectError(
             400, "newPassword $PASSWORD_RULE", HttpMethod.PATCH, "/api/users/me/password",
             JsonObject().put("oldPassword", PASSWORD).put("newPassword", "short"), userToken,
         )
@@ -367,7 +371,7 @@ class ErrorResponsesTest {
     @Test
     fun `password change with the wrong old password`(vertx: Vertx) = case(vertx) {
         repo.updatePassword(userId, hasher.hash(PASSWORD))
-        expect(
+        expectError(
             401, "incorrect password", HttpMethod.PATCH, "/api/users/me/password",
             JsonObject().put("oldPassword", NEW_PASSWORD).put("newPassword", NEW_PASSWORD), userToken,
         )
@@ -377,7 +381,7 @@ class ErrorResponsesTest {
     fun `password change on a locked account`(vertx: Vertx) = case(vertx) {
         repo.updatePassword(userId, hasher.hash(PASSWORD))
         repeat(LOCK_AFTER_FAILED_ATTEMPTS) { repo.registerFailedLoginAttempt(userId) }
-        expect(
+        expectError(
             401, "incorrect password", HttpMethod.PATCH, "/api/users/me/password",
             JsonObject().put("oldPassword", PASSWORD).put("newPassword", NEW_PASSWORD), userToken,
         )
@@ -385,43 +389,39 @@ class ErrorResponsesTest {
 
     // A record that vanishes between the caller check and the handler's own lookup (a race with an admin delete).
 
-    private fun withoutProfiles(repo: UserRepository): UserRepository = object : UserRepository by repo {
-        override suspend fun findById(id: UUID): User? = null
-    }
-
     @Test
     fun `me for a record that vanished`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, wrap = ::withoutProfiles)
-        h.expect(404, "user not found", HttpMethod.GET, "/api/users/me", token = h.userToken)
+        h.expectError(404, "user not found", HttpMethod.GET, "/api/users/me", token = h.userToken)
     }
 
     @Test
     fun `profile update for a record that vanished`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, wrap = ::withoutProfiles)
-        h.expect(404, "user not found", HttpMethod.PATCH, "/api/users/me", JsonObject().put("city", "Osaka"), h.userToken)
+        h.expectError(404, "user not found", HttpMethod.PATCH, "/api/users/me", JsonObject().put("city", "Osaka"), h.userToken)
     }
 
     @Test
     fun `nickname change for a record that vanished`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, wrap = ::withoutProfiles)
-        h.expect(404, "user not found", HttpMethod.PATCH, "/api/users/me/nickname", JsonObject().put("nickname", "bobby"), h.userToken)
+        h.expectError(404, "user not found", HttpMethod.PATCH, "/api/users/me/nickname", JsonObject().put("nickname", "bobby"), h.userToken)
     }
 
     @Test
     fun `request deletion for a record that vanished`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, wrap = ::withoutProfiles)
-        h.expect(404, "user not found", HttpMethod.POST, "/api/users/me/request-deletion", token = h.userToken)
+        h.expectError(404, "user not found", HttpMethod.POST, "/api/users/me/request-deletion", token = h.userToken)
     }
 
     @Test
     fun `cancel deletion for a record that vanished`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, wrap = ::withoutProfiles)
-        h.expect(404, "user not found", HttpMethod.DELETE, "/api/users/me/request-deletion", token = h.userToken)
+        h.expectError(404, "user not found", HttpMethod.DELETE, "/api/users/me/request-deletion", token = h.userToken)
     }
 
     @Test
     fun `admin profile update for a record that vanished`(vertx: Vertx) = case(vertx) {
-        expect(404, "user not found", HttpMethod.PATCH, "/api/users/${UUID.randomUUID()}/profile", JsonObject().put("city", "Osaka"), adminToken)
+        expectError(404, "user not found", HttpMethod.PATCH, "/api/users/${UUID.randomUUID()}/profile", JsonObject().put("city", "Osaka"), adminToken)
     }
 
     @Test
@@ -432,7 +432,7 @@ class ErrorResponsesTest {
                 override suspend fun findAuthRecordById(id: UUID): AuthRecord? = if (lookups++ == 0) repo.findAuthRecordById(id) else null
             }
         })
-        h.expect(
+        h.expectError(
             404, "user not found", HttpMethod.PATCH, "/api/users/me/password",
             JsonObject().put("oldPassword", PASSWORD).put("newPassword", NEW_PASSWORD), h.userToken,
         )
@@ -442,47 +442,47 @@ class ErrorResponsesTest {
 
     @Test
     fun `create with an invalid role`(vertx: Vertx) = case(vertx) {
-        expect(400, "role must be USER or ADMIN", HttpMethod.POST, "/api/users", JsonObject().put("role", "ROOT"), adminToken)
+        expectError(400, "role must be USER or ADMIN", HttpMethod.POST, "/api/users", JsonObject().put("role", "ROOT"), adminToken)
     }
 
     @Test
     fun `create with a non-string role`(vertx: Vertx) = case(vertx) {
-        expect(400, "role must be a string", HttpMethod.POST, "/api/users", JsonObject().put("role", 1), adminToken)
+        expectError(400, "role must be a string", HttpMethod.POST, "/api/users", JsonObject().put("role", 1), adminToken)
     }
 
     @Test
     fun `role change with an invalid id`(vertx: Vertx) = case(vertx) {
-        expect(400, "invalid id", HttpMethod.PATCH, "/api/users/not-a-uuid", JsonObject().put("role", "USER"), adminToken)
+        expectError(400, "invalid id", HttpMethod.PATCH, "/api/users/not-a-uuid", JsonObject().put("role", "USER"), adminToken)
     }
 
     @Test
     fun `role change without a body`(vertx: Vertx) = case(vertx) {
-        expect(400, "request body required", HttpMethod.PATCH, "/api/users/$userId", token = adminToken)
+        expectError(400, "request body required", HttpMethod.PATCH, "/api/users/$userId", token = adminToken)
     }
 
     @Test
     fun `role change to an invalid role`(vertx: Vertx) = case(vertx) {
-        expect(400, "role must be USER or ADMIN", HttpMethod.PATCH, "/api/users/$userId", JsonObject().put("role", "ROOT"), adminToken)
+        expectError(400, "role must be USER or ADMIN", HttpMethod.PATCH, "/api/users/$userId", JsonObject().put("role", "ROOT"), adminToken)
     }
 
     @Test
     fun `role change for a missing user`(vertx: Vertx) = case(vertx) {
-        expect(404, "user not found", HttpMethod.PATCH, "/api/users/${UUID.randomUUID()}", JsonObject().put("role", "USER"), adminToken)
+        expectError(404, "user not found", HttpMethod.PATCH, "/api/users/${UUID.randomUUID()}", JsonObject().put("role", "USER"), adminToken)
     }
 
     @Test
     fun `admin demoting themselves`(vertx: Vertx) = case(vertx) {
-        expect(409, "cannot demote yourself", HttpMethod.PATCH, "/api/users/$adminId", JsonObject().put("role", "USER"), adminToken)
+        expectError(409, "cannot demote yourself", HttpMethod.PATCH, "/api/users/$adminId", JsonObject().put("role", "USER"), adminToken)
     }
 
     @Test
     fun `status change to an invalid status`(vertx: Vertx) = case(vertx) {
-        expect(400, "status must be ACTIVE or FROZEN", HttpMethod.PATCH, "/api/users/$userId/status", JsonObject().put("status", "GONE"), adminToken)
+        expectError(400, "status must be ACTIVE or FROZEN", HttpMethod.PATCH, "/api/users/$userId/status", JsonObject().put("status", "GONE"), adminToken)
     }
 
     @Test
     fun `status change for a missing user`(vertx: Vertx) = case(vertx) {
-        expect(
+        expectError(
             404, "user not found", HttpMethod.PATCH, "/api/users/${UUID.randomUUID()}/status",
             JsonObject().put("status", "FROZEN"), adminToken,
         )
@@ -490,27 +490,27 @@ class ErrorResponsesTest {
 
     @Test
     fun `admin freezing themselves`(vertx: Vertx) = case(vertx) {
-        expect(409, "cannot freeze yourself", HttpMethod.PATCH, "/api/users/$adminId/status", JsonObject().put("status", "FROZEN"), adminToken)
+        expectError(409, "cannot freeze yourself", HttpMethod.PATCH, "/api/users/$adminId/status", JsonObject().put("status", "FROZEN"), adminToken)
     }
 
     @Test
     fun `admin update with a blank nickname`(vertx: Vertx) = case(vertx) {
-        expect(400, "nickname must not be blank", HttpMethod.PATCH, "/api/users/$userId/profile", JsonObject().put("nickname", " "), adminToken)
+        expectError(400, "nickname must not be blank", HttpMethod.PATCH, "/api/users/$userId/profile", JsonObject().put("nickname", " "), adminToken)
     }
 
     @Test
     fun `admin update to a taken nickname`(vertx: Vertx) = case(vertx) {
-        expect(409, "nickname already taken", HttpMethod.PATCH, "/api/users/$userId/profile", JsonObject().put("nickname", "root"), adminToken)
+        expectError(409, "nickname already taken", HttpMethod.PATCH, "/api/users/$userId/profile", JsonObject().put("nickname", "root"), adminToken)
     }
 
     @Test
     fun `admin password set without a password`(vertx: Vertx) = case(vertx) {
-        expect(400, "newPassword required", HttpMethod.PATCH, "/api/users/$userId/password", JsonObject(), adminToken)
+        expectError(400, "newPassword required", HttpMethod.PATCH, "/api/users/$userId/password", JsonObject(), adminToken)
     }
 
     @Test
     fun `admin password set for a missing user`(vertx: Vertx) = case(vertx) {
-        expect(
+        expectError(
             404, "user not found", HttpMethod.PATCH, "/api/users/${UUID.randomUUID()}/password",
             JsonObject().put("newPassword", NEW_PASSWORD), adminToken,
         )
@@ -518,17 +518,17 @@ class ErrorResponsesTest {
 
     @Test
     fun `delete with an invalid id`(vertx: Vertx) = case(vertx) {
-        expect(400, "invalid id", HttpMethod.DELETE, "/api/users/not-a-uuid", token = adminToken)
+        expectError(400, "invalid id", HttpMethod.DELETE, "/api/users/not-a-uuid", token = adminToken)
     }
 
     @Test
     fun `delete of a missing user`(vertx: Vertx) = case(vertx) {
-        expect(404, "user not found", HttpMethod.DELETE, "/api/users/${UUID.randomUUID()}", token = adminToken)
+        expectError(404, "user not found", HttpMethod.DELETE, "/api/users/${UUID.randomUUID()}", token = adminToken)
     }
 
     @Test
     fun `admin deleting themselves`(vertx: Vertx) = case(vertx) {
-        expect(409, "cannot delete yourself", HttpMethod.DELETE, "/api/users/$adminId", token = adminToken)
+        expectError(409, "cannot delete yourself", HttpMethod.DELETE, "/api/users/$adminId", token = adminToken)
     }
 
     @Test
@@ -543,15 +543,15 @@ class ErrorResponsesTest {
 
     @Test
     fun `oauth routes while the feature is off`(vertx: Vertx) = case(vertx) {
-        expect(404, "oauth_disabled", HttpMethod.GET, "/api/oauth/client?client_id=omiyage")
-        expect(404, "oauth_disabled", HttpMethod.POST, "/api/oauth/token")
-        expect(404, "oauth_disabled", HttpMethod.POST, "/api/oauth/authorize", JsonObject(), userToken)
+        expectError(404, "oauth_disabled", HttpMethod.GET, "/api/oauth/client?client_id=omiyage")
+        expectError(404, "oauth_disabled", HttpMethod.POST, "/api/oauth/token")
+        expectError(404, "oauth_disabled", HttpMethod.POST, "/api/oauth/authorize", JsonObject(), userToken)
     }
 
     @Test
     fun `oauth authorize without a session`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, oauthClients = listOf(omiyage))
-        h.expect(401, "unauthorized", HttpMethod.POST, "/api/oauth/authorize", JsonObject())
+        h.expectError(401, "unauthorized", HttpMethod.POST, "/api/oauth/authorize", JsonObject())
     }
 
     @Test
@@ -561,7 +561,7 @@ class ErrorResponsesTest {
         val body = JsonObject().put("response_type", "code").put("client_id", "omiyage").put("redirect_uri", REDIRECT_URI)
             .put("state", "s").put("code_challenge", CHALLENGE).put("code_challenge_method", "S256")
 
-        h.expect(401, "unauthorized", HttpMethod.POST, "/api/oauth/authorize", body, h.userToken)
+        h.expectError(401, "unauthorized", HttpMethod.POST, "/api/oauth/authorize", body, h.userToken)
     }
 
     @Test
@@ -571,44 +571,44 @@ class ErrorResponsesTest {
         val body = JsonObject().put("response_type", "code").put("client_id", "omiyage").put("redirect_uri", REDIRECT_URI)
             .put("state", "s").put("code_challenge", CHALLENGE).put("code_challenge_method", "S256")
 
-        h.expect(401, "unauthorized", HttpMethod.POST, "/api/oauth/authorize", body, noExpiry)
+        h.expectError(401, "unauthorized", HttpMethod.POST, "/api/oauth/authorize", body, noExpiry)
     }
 
     @Test
     fun `oauth authorize without a body`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, oauthClients = listOf(omiyage))
-        h.expect(400, "request body required", HttpMethod.POST, "/api/oauth/authorize", token = h.userToken)
+        h.expectError(400, "request body required", HttpMethod.POST, "/api/oauth/authorize", token = h.userToken)
     }
 
     @Test
     fun `oauth client lookup with an unknown client`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, oauthClients = listOf(omiyage))
-        h.expect(400, "invalid_client", HttpMethod.GET, "/api/oauth/client?client_id=nope")
+        h.expectError(400, "invalid_client", HttpMethod.GET, "/api/oauth/client?client_id=nope")
     }
 
     @Test
     fun `oauth client lookup with an unregistered redirect uri`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, oauthClients = listOf(omiyage))
-        h.expect(400, "invalid_redirect_uri", HttpMethod.GET, "/api/oauth/client?client_id=omiyage&redirect_uri=https://evil.test/")
+        h.expectError(400, "invalid_redirect_uri", HttpMethod.GET, "/api/oauth/client?client_id=omiyage&redirect_uri=https://evil.test/")
     }
 
     @Test
     fun `oauth client lookup with an unregistered return uri`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, oauthClients = listOf(omiyage))
-        h.expect(400, "invalid_return_uri", HttpMethod.GET, "/api/oauth/client?client_id=omiyage&return_uri=https://evil.test/")
+        h.expectError(400, "invalid_return_uri", HttpMethod.GET, "/api/oauth/client?client_id=omiyage&return_uri=https://evil.test/")
     }
 
     @Test
     fun `oauth authorize with a non-code response type`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, oauthClients = listOf(omiyage))
-        h.expect(400, "unsupported_response_type", HttpMethod.POST, "/api/oauth/authorize", JsonObject().put("response_type", "token"), h.userToken)
+        h.expectError(400, "unsupported_response_type", HttpMethod.POST, "/api/oauth/authorize", JsonObject().put("response_type", "token"), h.userToken)
     }
 
     @Test
     fun `oauth authorize with a missing state`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, oauthClients = listOf(omiyage))
         val body = JsonObject().put("response_type", "code").put("client_id", "omiyage").put("redirect_uri", REDIRECT_URI)
-        h.expect(400, "invalid_request", HttpMethod.POST, "/api/oauth/authorize", body, h.userToken)
+        h.expectError(400, "invalid_request", HttpMethod.POST, "/api/oauth/authorize", body, h.userToken)
     }
 
     @Test
