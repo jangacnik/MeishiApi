@@ -4,8 +4,8 @@ import arrow.core.raise.Raise
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
 import org.slf4j.LoggerFactory
-import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.domain.OAuthError
+import tcg.accumulator.meishiapi.domain.RateLimitError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.model.Status
@@ -63,7 +63,7 @@ class OAuthHandler(
         val user = ctx.user() ?: raise(OAuthError.Unauthorized)
         val userId = jwt.subjectOf(user.principal()) ?: raise(OAuthError.Unauthorized)
         val retryAfterSeconds = authorizeLimiter.tryAcquire(userId.toString())
-        if (retryAfterSeconds > 0) raise(AppError.TooManyRequests("too many requests", retryAfterSeconds))
+        if (retryAfterSeconds > 0) raise(RateLimitError.TooManyRequests(retryAfterSeconds))
         if (!canSignIn(repository.findAuthRecordById(userId))) raise(OAuthError.Unauthorized)
         val sessionExpiry = user.attributes().getLong("exp") ?: raise(OAuthError.Unauthorized)
         val sessionExpiresAt = Instant.ofEpochSecond(sessionExpiry).atOffset(ZoneOffset.UTC)

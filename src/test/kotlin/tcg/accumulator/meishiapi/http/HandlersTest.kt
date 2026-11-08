@@ -11,7 +11,8 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
-import tcg.accumulator.meishiapi.domain.AppError
+import tcg.accumulator.meishiapi.domain.RateLimitError
+import tcg.accumulator.meishiapi.domain.UserError
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
@@ -23,8 +24,8 @@ class HandlersTest {
         router.get("/json").handler { ctx -> respond(ctx) { JsonResult(JsonObject().put("a", 1), 201) } }
         router.get("/array").handler { ctx -> respond(ctx) { JsonArrayResult(JsonArray().add("x").add("y")) } }
         router.get("/empty").handler { ctx -> respond(ctx) { NoContentResult() } }
-        router.get("/missing").handler { ctx -> respond(ctx) { raise(AppError.NotFound("no such thing")) } }
-        router.get("/slow").handler { ctx -> respond(ctx) { raise(AppError.TooManyRequests("slow down", 7)) } }
+        router.get("/missing").handler { ctx -> respond(ctx) { raise(UserError.NotFound) } }
+        router.get("/slow").handler { ctx -> respond(ctx) { raise(RateLimitError.TooManyRequests(7)) } }
         router.get("/boom").handler { ctx -> respond(ctx) { error("kaboom") } }
         return vertx.createHttpServer().requestHandler(router).listen(0).coAwait().actualPort()
     }
@@ -55,11 +56,11 @@ class HandlersTest {
     }
 
     @Test
-    fun `raised app error becomes its status and message`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+    fun `raised domain error becomes its status and message`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val response = WebClient.create(vertx).get(port(vertx), "localhost", "/missing").send().coAwait()
 
         assertEquals(404, response.statusCode())
-        assertEquals("no such thing", response.bodyAsJsonObject().getString("error"))
+        assertEquals("user not found", response.bodyAsJsonObject().getString("error"))
     }
 
     @Test

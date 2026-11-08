@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeout
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
 import tcg.accumulator.meishiapi.domain.OAuthError
+import tcg.accumulator.meishiapi.domain.RateLimitError
 import tcg.accumulator.meishiapi.logging.describe
 import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.repository.UserRepository
@@ -108,9 +109,7 @@ private fun limitLoginRate(ctx: RoutingContext, limiter: LoginRateLimiter, clien
         return
     }
     withRequestId(ctx) { security.warn("login_rate_limited {}", kv("clientIp", ip)) }
-    ctx.response().setStatusCode(429).putHeader("Retry-After", retryAfterSeconds.toString())
-        .putHeader("content-type", "application/json")
-        .end(JsonObject().put("error", "too many login attempts").encode())
+    writeFailure(ctx, RateLimitError.TooManyLoginAttempts(retryAfterSeconds).toHttpFailure())
 }
 
 private fun checkReadiness(ctx: RoutingContext, readinessCheck: suspend () -> Unit) {

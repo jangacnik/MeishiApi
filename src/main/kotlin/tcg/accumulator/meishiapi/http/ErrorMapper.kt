@@ -1,10 +1,10 @@
 package tcg.accumulator.meishiapi.http
 
-import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.domain.AuthError
 import tcg.accumulator.meishiapi.domain.DomainError
 import tcg.accumulator.meishiapi.domain.InvalidInput
 import tcg.accumulator.meishiapi.domain.OAuthError
+import tcg.accumulator.meishiapi.domain.RateLimitError
 import tcg.accumulator.meishiapi.domain.UserError
 
 /** What a failed request looks like on the wire: `{"error": message}` with [status], plus `Retry-After` when set. */
@@ -38,5 +38,6 @@ fun DomainError.toHttpFailure(): HttpFailure = when (this) {
     UserError.CannotDemoteSelf -> HttpFailure(409, "cannot demote yourself")
     UserError.CannotFreezeSelf -> HttpFailure(409, "cannot freeze yourself")
     UserError.CannotDeleteSelf -> HttpFailure(409, "cannot delete yourself")
-    is AppError -> HttpFailure(status, message, (this as? AppError.TooManyRequests)?.retryAfterSeconds, (this as? AppError.Internal)?.cause)
+    is RateLimitError.TooManyLoginAttempts -> HttpFailure(429, "too many login attempts", retryAfterSeconds)
+    is RateLimitError.TooManyRequests -> HttpFailure(429, "too many requests", retryAfterSeconds)
 }

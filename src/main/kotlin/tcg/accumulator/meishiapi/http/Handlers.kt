@@ -54,6 +54,11 @@ private fun writeError(ctx: RoutingContext, failure: HttpFailure) {
     } else {
         log.debug("request rejected: {} {} -> {} ({})", ctx.request().method(), ctx.request().path(), failure.status, failure.message)
     }
+    writeFailure(ctx, failure)
+}
+
+/** Writes [failure] as the response without logging it, for callers that log in their own way. */
+internal fun writeFailure(ctx: RoutingContext, failure: HttpFailure) {
     failure.retryAfterSeconds?.let { ctx.response().putHeader("Retry-After", it.toString()) }
     ctx.response().setStatusCode(failure.status).putHeader("content-type", "application/json")
         .end(JsonObject().put("error", failure.message).encode())

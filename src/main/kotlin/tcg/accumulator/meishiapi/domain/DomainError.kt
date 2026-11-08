@@ -35,6 +35,17 @@ sealed interface OAuthError : DomainError {
     data object Unauthorized : OAuthError
 }
 
+/** Throttling. [retryAfterSeconds] becomes the `Retry-After` header. Lockout never surfaces here: see [AuthError.InvalidCredentials]. */
+sealed interface RateLimitError : DomainError {
+    val retryAfterSeconds: Long
+
+    /** Too many sign-in or token calls from one client address. */
+    data class TooManyLoginAttempts(override val retryAfterSeconds: Long) : RateLimitError
+
+    /** Too many authorization requests from one signed-in user. */
+    data class TooManyRequests(override val retryAfterSeconds: Long) : RateLimitError
+}
+
 /** Users and profiles: self-service changes and the admin operations on other accounts. */
 sealed interface UserError : DomainError {
     data object NotFound : UserError
