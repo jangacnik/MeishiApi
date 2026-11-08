@@ -11,7 +11,7 @@ import io.vertx.sqlclient.SqlClient
 import io.vertx.sqlclient.Tuple
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
-import tcg.accumulator.meishiapi.http.AppError
+import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status

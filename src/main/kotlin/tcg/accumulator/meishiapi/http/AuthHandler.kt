@@ -6,6 +6,7 @@ import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
+import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.logging.nicknameHash
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.repository.UserRepository

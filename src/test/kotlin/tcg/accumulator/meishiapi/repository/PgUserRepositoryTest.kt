@@ -13,7 +13,7 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
-import tcg.accumulator.meishiapi.http.AppError
+import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status

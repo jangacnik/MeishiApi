@@ -4,6 +4,7 @@ import arrow.core.raise.Raise
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
 import org.slf4j.LoggerFactory
+import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.model.Status

@@ -2,7 +2,7 @@ package tcg.accumulator.meishiapi.repository
 
 import arrow.core.Either
 import arrow.core.raise.either
-import tcg.accumulator.meishiapi.http.AppError
+import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status

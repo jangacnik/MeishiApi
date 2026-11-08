@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
+import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
 import tcg.accumulator.meishiapi.model.User

@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import net.logstash.logback.argument.StructuredArguments.kv
 import org.slf4j.LoggerFactory
+import tcg.accumulator.meishiapi.domain.AppError
 import tcg.accumulator.meishiapi.logging.describe
 import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.repository.UserRepository

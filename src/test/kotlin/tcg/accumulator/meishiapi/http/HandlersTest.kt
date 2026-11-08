@@ -11,6 +11,7 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
+import tcg.accumulator.meishiapi.domain.AppError
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 

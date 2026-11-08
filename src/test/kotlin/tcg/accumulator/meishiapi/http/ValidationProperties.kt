@@ -8,6 +8,7 @@ import net.jqwik.api.ForAll
 import net.jqwik.api.Property
 import net.jqwik.api.Provide
 import net.jqwik.api.constraints.IntRange
+import tcg.accumulator.meishiapi.domain.InvalidInput
 import kotlin.system.measureTimeMillis
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -17,11 +18,11 @@ class ValidationProperties {
     private val nicknamePattern = Regex("[A-Za-z0-9 _.-]+")
     private val emailPattern = Regex("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")
 
-    private fun nickname(raw: String): Either<AppError, String> = either { validNickname(raw) }
+    private fun nickname(raw: String): Either<InvalidInput, String> = either { validNickname(raw) }
 
-    private fun password(raw: String): Either<AppError, String> = either { validPassword(raw, "password") }
+    private fun password(raw: String): Either<InvalidInput, String> = either { validPassword(raw, "password") }
 
-    private fun profile(fields: Map<String, String?>): Either<AppError, Unit> = either { validProfileFields(fields) }
+    private fun profile(fields: Map<String, String?>): Either<InvalidInput, Unit> = either { validProfileFields(fields) }
 
     @Provide
     fun nicknames(): Arbitrary<String> = Arbitraries.oneOf(
@@ -75,7 +76,7 @@ class ValidationProperties {
         limits.forEach { (column, max) ->
             val result = profile(mapOf(column to "x".repeat(max + extra)))
             val error = result.leftOrNull()
-            assertTrue(error is AppError.BadRequest && error.message.startsWith(column), "$column: $result")
+            assertTrue(error is InvalidInput && error.message.startsWith(column), "$column: $result")
             assertTrue(profile(mapOf(column to "x".repeat(max))).isRight())
         }
     }
