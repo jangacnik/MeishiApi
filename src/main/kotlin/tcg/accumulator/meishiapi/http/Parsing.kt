@@ -1,10 +1,10 @@
 package tcg.accumulator.meishiapi.http
 
 import arrow.core.raise.Raise
-import tcg.accumulator.meishiapi.domain.InvalidInput
 import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
+import tcg.accumulator.meishiapi.domain.InvalidInput
 import java.util.UUID
 
 /** Parses a UUID as a value instead of letting [IllegalArgumentException] escape. */

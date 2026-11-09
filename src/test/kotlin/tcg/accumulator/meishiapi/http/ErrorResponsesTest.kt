@@ -1,5 +1,6 @@
 package tcg.accumulator.meishiapi.http
 
+import io.vertx.core.MultiMap
 import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpMethod
@@ -12,6 +13,7 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
+import tcg.accumulator.meishiapi.model.AuthorizationGrant
 import tcg.accumulator.meishiapi.model.OAuthClient
 import tcg.accumulator.meishiapi.model.Role
 import tcg.accumulator.meishiapi.model.Status
@@ -22,6 +24,8 @@ import tcg.accumulator.meishiapi.repository.UserRepository
 import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.LOCK_AFTER_FAILED_ATTEMPTS
 import tcg.accumulator.meishiapi.security.PasswordHasher
+import tcg.accumulator.meishiapi.security.hashAuthorizationCode
+import java.time.OffsetDateTime
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -30,6 +34,7 @@ private const val PASSWORD = "hunter2-correct"
 private const val NEW_PASSWORD = "another-correct-one"
 private const val REDIRECT_URI = "https://omiyage.example/auth/callback"
 private const val CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+private const val VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 private const val POST_REGISTER = "/api/auth/register"
 private const val POST_LOGIN = "/api/auth/login"
 private const val INVALID_CREDENTIALS = "invalid nickname or password"
@@ -42,13 +47,21 @@ private fun assertRejected(response: HttpResponse<Buffer>, status: Int, error: S
     assertEquals(JsonObject().put("error", error), response.bodyAsJsonObject())
 }
 
+private fun authorizeBody() = JsonObject()
+    .put("response_type", "code").put("client_id", "omiyage").put("redirect_uri", REDIRECT_URI)
+    .put("state", "state-1").put("code_challenge", CHALLENGE).put("code_challenge_method", "S256")
+
+private fun tokenForm(code: String) = MultiMap.caseInsensitiveMultiMap()
+    .add("grant_type", "authorization_code").add("code", code).add("redirect_uri", REDIRECT_URI)
+    .add("client_id", "omiyage").add("code_verifier", VERIFIER)
+
 private fun withoutProfiles(repo: UserRepository): UserRepository = object : UserRepository by repo {
     override suspend fun findById(id: UUID): User? = null
 }
 
 /**
- * Pins every error response the API can produce today: status, the `error` text and the exact JSON body.
- * It exists so the error handling can be restructured without changing what clients see.
+ * Pins every error response the API produces: status, the `error` text and the exact JSON body.
+ * Written against the exception-based handling and kept green through its restructuring, so clients see no difference.
  */
 @ExtendWith(VertxExtension::class)
 class ErrorResponsesTest {
@@ -70,6 +83,15 @@ class ErrorResponsesTest {
             return if (body == null) request.send().coAwait() else request.sendJsonObject(body).coAwait()
         }
 
+        suspend fun issueCode(): String {
+            val response = send(HttpMethod.POST, "/api/oauth/authorize", authorizeBody(), userToken)
+            assertEquals(200, response.statusCode())
+            return response.bodyAsJsonObject().getString("redirectUrl").substringAfter("code=").substringBefore("&")
+        }
+
+        suspend fun exchange(form: MultiMap): HttpResponse<Buffer> =
+            client.post(port, "localhost", "/api/oauth/token").sendForm(form).coAwait()
+
         suspend fun expectError(
             status: Int,
             error: String,
@@ -83,6 +105,7 @@ class ErrorResponsesTest {
     private suspend fun harness(
         vertx: Vertx,
         loginLimiter: LoginRateLimiter = LoginRateLimiter(1_000),
+        oauthLimiter: LoginRateLimiter = LoginRateLimiter(OAUTH_REQUESTS_PER_MINUTE),
         oauthClients: List<OAuthClient> = emptyList(),
         oauthEnabled: Boolean = oauthClients.isNotEmpty(),
         wrap: (FakeUserRepository) -> UserRepository = { it },
@@ -92,7 +115,7 @@ class ErrorResponsesTest {
         val jwt = JwtService(vertx, "test-secret")
         val router = buildRouter(
             vertx, wrap(repo), hasher, jwt, loginLimiter,
-            oauthClients = oauthClients, oauthEnabled = oauthEnabled,
+            oauthClients = oauthClients, oauthEnabled = oauthEnabled, oauthRateLimiter = oauthLimiter,
         )
         val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
         val (adminId, _) = repo.create(Role.ADMIN)
@@ -315,6 +338,20 @@ class ErrorResponsesTest {
         h.repo.updatePassword(h.userId, h.hasher.hash(PASSWORD))
 
         h.expectError(500, "activated user ${h.userId} has no nickname", HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", PASSWORD))
+    }
+
+    @Test
+    fun `login to a frozen account with the wrong password`(vertx: Vertx) = case(vertx) {
+        repo.updatePassword(userId, hasher.hash(PASSWORD))
+        repo.updateStatus(adminId, userId, Status.FROZEN)
+        expectError(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", NEW_PASSWORD))
+    }
+
+    @Test
+    fun `login to a locked account with the wrong password`(vertx: Vertx) = case(vertx) {
+        repo.updatePassword(userId, hasher.hash(PASSWORD))
+        repeat(LOCK_AFTER_FAILED_ATTEMPTS) { repo.registerFailedLoginAttempt(userId) }
+        expectError(401, INVALID_CREDENTIALS, HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", NEW_PASSWORD))
     }
 
     // Self-service.
@@ -639,5 +676,119 @@ class ErrorResponsesTest {
             .sendForm(io.vertx.core.MultiMap.caseInsensitiveMultiMap().add("grant_type", "authorization_code").add("code", "nope")).coAwait()
 
         assertRejected(response, 400, "invalid_grant")
+    }
+
+    private suspend fun oauthHarness(vertx: Vertx, oauthLimiter: LoginRateLimiter = LoginRateLimiter(OAUTH_REQUESTS_PER_MINUTE), wrap: (FakeUserRepository) -> UserRepository = { it }) =
+        harness(vertx, oauthClients = listOf(omiyage), oauthLimiter = oauthLimiter, wrap = wrap)
+
+    @Test
+    fun `oauth authorize with an unknown client`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        h.expectError(400, "invalid_client", HttpMethod.POST, "/api/oauth/authorize", authorizeBody().put("client_id", "nope"), h.userToken)
+    }
+
+    @Test
+    fun `oauth authorize with an unregistered redirect uri`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        h.expectError(
+            400, "invalid_redirect_uri", HttpMethod.POST, "/api/oauth/authorize",
+            authorizeBody().put("redirect_uri", "https://evil.test/auth/callback"), h.userToken,
+        )
+    }
+
+    @Test
+    fun `oauth authorize with a malformed code challenge`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        h.expectError(400, "invalid_request", HttpMethod.POST, "/api/oauth/authorize", authorizeBody().put("code_challenge", "short"), h.userToken)
+    }
+
+    @Test
+    fun `oauth authorize with a challenge method other than S256`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        h.expectError(400, "invalid_request", HttpMethod.POST, "/api/oauth/authorize", authorizeBody().put("code_challenge_method", "plain"), h.userToken)
+    }
+
+    @Test
+    fun `oauth authorize with an over-long state`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        h.expectError(400, "invalid_request", HttpMethod.POST, "/api/oauth/authorize", authorizeBody().put("state", "s".repeat(513)), h.userToken)
+    }
+
+    private suspend fun Harness.expectInvalidGrant(form: MultiMap) =
+        assertRejected(exchange(form), 400, "invalid_grant")
+
+    @Test
+    fun `oauth token with a verifier that does not match the challenge`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        h.expectInvalidGrant(tokenForm(h.issueCode()).set("code_verifier", "x".repeat(43)))
+    }
+
+    @Test
+    fun `oauth token without a verifier`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        h.expectInvalidGrant(tokenForm(h.issueCode()).remove("code_verifier"))
+    }
+
+    @Test
+    fun `oauth token for a different client`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        h.expectInvalidGrant(tokenForm(h.issueCode()).set("client_id", "other"))
+    }
+
+    @Test
+    fun `oauth token for a different redirect uri`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        h.expectInvalidGrant(tokenForm(h.issueCode()).set("redirect_uri", "$REDIRECT_URI/"))
+    }
+
+    @Test
+    fun `oauth token for a code whose session has expired`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        val grant = AuthorizationGrant("omiyage", REDIRECT_URI, h.userId, CHALLENGE, OffsetDateTime.now().minusSeconds(1))
+        h.repo.saveAuthorizationCode(hashAuthorizationCode("stale"), grant, 60)
+
+        h.expectInvalidGrant(tokenForm("stale"))
+    }
+
+    @Test
+    fun `oauth token for a user frozen after the code was issued`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx)
+        val code = h.issueCode()
+        h.repo.updateStatus(h.adminId, h.userId, Status.FROZEN)
+
+        h.expectInvalidGrant(tokenForm(code))
+    }
+
+    @Test
+    fun `oauth token for a user without a nickname`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx, wrap = { repo ->
+            object : UserRepository by repo {
+                override suspend fun findAuthRecordById(id: UUID): AuthRecord? = repo.findAuthRecordById(id)?.copy(nickname = null)
+            }
+        })
+
+        h.expectInvalidGrant(tokenForm(h.issueCode()))
+    }
+
+    @Test
+    fun `oauth token over the per-ip limit is a 429 with Retry-After`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx, LoginRateLimiter(1))
+        h.exchange(tokenForm("nope"))
+
+        val limited = h.exchange(tokenForm("nope"))
+
+        assertRejected(limited, 429, "too many login attempts")
+        assertTrue(limited.getHeader("Retry-After").toLong() >= 1)
+    }
+
+    @Test
+    fun `oauth client lookup over the per-ip limit is a 429 with Retry-After`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+        val h = oauthHarness(vertx, LoginRateLimiter(1))
+        h.send(HttpMethod.GET, "/api/oauth/client?client_id=omiyage")
+
+        val limited = h.send(HttpMethod.GET, "/api/oauth/client?client_id=omiyage")
+
+        assertRejected(limited, 429, "too many login attempts")
+        assertTrue(limited.getHeader("Retry-After").toLong() >= 1)
     }
 }
