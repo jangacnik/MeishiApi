@@ -61,6 +61,6 @@ jobs:
           AUTH=$(printf 'ci-bot:%s' "${{ secrets.CI_TOKEN }}" | base64 -w0)
           git -c "http.extraheader=Authorization: Basic $AUTH" clone https://gitea.gacnikhome.duckdns.org/tcg/homelab-gitops.git gitops
           cd gitops
-          sed -i "s/newTag:.*/newTag: $TAG/" apps/meishi-api/kustomization.yaml
+          sed -i "s/newTag:.*/newTag: \"$TAG\"/" apps/meishi-api/kustomization.yaml
           git -c user.name=ci-bot -c user.email=ci-bot@gacnikhome.duckdns.org commit -qam "meishi-api: $TAG"
           for i in 1 2 3 4 5; do git -c "http.extraheader=Authorization: Basic $AUTH" pull --rebase -q && git -c "http.extraheader=Authorization: Basic $AUTH" push -q && break; sleep 3; done
