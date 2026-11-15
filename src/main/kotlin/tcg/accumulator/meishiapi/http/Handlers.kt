@@ -50,7 +50,7 @@ private fun writeResult(ctx: RoutingContext, result: HandlerResult) {
 
 private fun writeError(ctx: RoutingContext, failure: HttpFailure) {
     if (failure.status == 500) {
-        log.error("request failed with internal error: {} {}", failure.message, failure.cause?.let(::describe))
+        log.error("request failed with internal error: {} {} {}", failure.message, failure.logDetail.orEmpty(), failure.cause?.let(::describe))
     } else {
         log.debug("request rejected: {} {} -> {} ({})", ctx.request().method(), ctx.request().path(), failure.status, failure.message)
     }
