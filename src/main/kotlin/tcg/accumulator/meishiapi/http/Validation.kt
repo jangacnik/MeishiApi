@@ -1,6 +1,7 @@
 package tcg.accumulator.meishiapi.http
 
 import arrow.core.raise.Raise
+import tcg.accumulator.meishiapi.domain.InvalidInput
 
 private const val MIN_NICKNAME_LENGTH = 3
 private const val MAX_NICKNAME_LENGTH = 64
@@ -22,11 +23,11 @@ private val PROFILE_FIELD_MAX_LENGTHS = mapOf(
     "avatar_key" to 255,
 )
 
-fun Raise<AppError>.validNickname(raw: String): String {
+fun Raise<InvalidInput>.validNickname(raw: String): String {
     val nickname = raw.trim()
     if (nickname.length !in MIN_NICKNAME_LENGTH..MAX_NICKNAME_LENGTH || !NICKNAME_PATTERN.matches(nickname)) {
         raise(
-            AppError.BadRequest(
+            InvalidInput(
                 "nickname must be $MIN_NICKNAME_LENGTH-$MAX_NICKNAME_LENGTH characters of A-Z, a-z, 0-9, space, _, . or -",
             ),
         )
@@ -34,21 +35,21 @@ fun Raise<AppError>.validNickname(raw: String): String {
     return nickname
 }
 
-fun Raise<AppError>.validPassword(password: String, field: String): String {
+fun Raise<InvalidInput>.validPassword(password: String, field: String): String {
     if (password.length !in MIN_PASSWORD_LENGTH..MAX_PASSWORD_LENGTH) {
-        raise(AppError.BadRequest("$field must be $MIN_PASSWORD_LENGTH-$MAX_PASSWORD_LENGTH characters"))
+        raise(InvalidInput("$field must be $MIN_PASSWORD_LENGTH-$MAX_PASSWORD_LENGTH characters"))
     }
     return password
 }
 
-fun Raise<AppError>.validProfileFields(fields: Map<String, String?>) {
+fun Raise<InvalidInput>.validProfileFields(fields: Map<String, String?>) {
     fields.forEach { (column, value) ->
         val maxLength = PROFILE_FIELD_MAX_LENGTHS[column]
         if (value != null && maxLength != null && value.length > maxLength) {
-            raise(AppError.BadRequest("$column must be at most $maxLength characters"))
+            raise(InvalidInput("$column must be at most $maxLength characters"))
         }
     }
     fields["email"]?.let {
-        if (!EMAIL_PATTERN.matches(it)) raise(AppError.BadRequest("email is not a valid address"))
+        if (!EMAIL_PATTERN.matches(it)) raise(InvalidInput("email is not a valid address"))
     }
 }
