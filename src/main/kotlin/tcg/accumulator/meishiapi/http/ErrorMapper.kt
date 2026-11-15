@@ -13,6 +13,8 @@ data class HttpFailure(
     val message: String,
     val retryAfterSeconds: Long? = null,
     val cause: Throwable? = null,
+    /** Server-log-only context; never written to the response. */
+    val logDetail: String? = null,
 )
 
 /** The only place a [DomainError] gets an HTTP status and error text. Exhaustive, so a new case cannot go unmapped. */
@@ -21,7 +23,7 @@ fun DomainError.toHttpFailure(): HttpFailure = when (this) {
     AuthError.InvalidActivationKey -> HttpFailure(409, "invalid activation key")
     AuthError.InvalidCredentials -> HttpFailure(401, "invalid nickname or password")
     AuthError.Unauthenticated -> HttpFailure(401, "unauthenticated")
-    is AuthError.ActivatedUserWithoutNickname -> HttpFailure(500, "activated user $userId has no nickname")
+    is AuthError.ActivatedUserWithoutNickname -> HttpFailure(500, "internal error", logDetail = "activated user $userId has no nickname")
     OAuthError.Disabled -> HttpFailure(404, "oauth_disabled")
     OAuthError.InvalidClient -> HttpFailure(400, "invalid_client")
     OAuthError.InvalidRedirectUri -> HttpFailure(400, "invalid_redirect_uri")

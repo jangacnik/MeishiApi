@@ -20,7 +20,7 @@ class ErrorMapperTest {
         Triple(AuthError.InvalidActivationKey, 409, "invalid activation key"),
         Triple(AuthError.InvalidCredentials, 401, "invalid nickname or password"),
         Triple(AuthError.Unauthenticated, 401, "unauthenticated"),
-        Triple(AuthError.ActivatedUserWithoutNickname(userId), 500, "activated user $userId has no nickname"),
+        Triple(AuthError.ActivatedUserWithoutNickname(userId), 500, "internal error"),
         Triple(OAuthError.Disabled, 404, "oauth_disabled"),
         Triple(OAuthError.InvalidClient, 400, "invalid_client"),
         Triple(OAuthError.InvalidRedirectUri, 400, "invalid_redirect_uri"),
@@ -48,6 +48,14 @@ class ErrorMapperTest {
             assertEquals(message, failure.message, "$error")
             assertNull(failure.retryAfterSeconds, "$error")
         }
+    }
+
+    @Test
+    fun `an activated user without a nickname keeps the account id out of the message and in the log detail`() {
+        val failure = AuthError.ActivatedUserWithoutNickname(userId).toHttpFailure()
+
+        assertEquals("internal error", failure.message)
+        assertEquals("activated user $userId has no nickname", failure.logDetail)
     }
 
     @Test

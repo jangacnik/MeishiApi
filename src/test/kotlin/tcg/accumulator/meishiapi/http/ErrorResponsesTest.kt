@@ -25,9 +25,11 @@ import tcg.accumulator.meishiapi.security.JwtService
 import tcg.accumulator.meishiapi.security.LOCK_AFTER_FAILED_ATTEMPTS
 import tcg.accumulator.meishiapi.security.PasswordHasher
 import tcg.accumulator.meishiapi.security.hashAuthorizationCode
+import tcg.accumulator.meishiapi.logging.LogCapture
 import java.time.OffsetDateTime
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val PASSWORD = "hunter2-correct"
@@ -329,7 +331,7 @@ class ErrorResponsesTest {
     }
 
     @Test
-    fun `login to an activated account that has no nickname is a 500 naming the account`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
+    fun `login to an activated account that has no nickname is a generic 500 and the account is only logged`(vertx: Vertx) = runBlocking(vertx.dispatcher()) {
         val h = harness(vertx, wrap = { repo ->
             object : UserRepository by repo {
                 override suspend fun findByNickname(nickname: String): AuthRecord? = repo.findByNickname(nickname)?.copy(nickname = null)
@@ -337,7 +339,12 @@ class ErrorResponsesTest {
         })
         h.repo.updatePassword(h.userId, h.hasher.hash(PASSWORD))
 
-        h.expectError(500, "activated user ${h.userId} has no nickname", HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", PASSWORD))
+        LogCapture().use { logs ->
+            h.expectError(500, "internal error", HttpMethod.POST, POST_LOGIN, JsonObject().put("nickname", "bob").put("password", PASSWORD))
+
+            assertTrue(logs.renderAll().contains("activated user ${h.userId} has no nickname"))
+            assertFalse(logs.renderAll().contains(PASSWORD))
+        }
     }
 
     @Test
