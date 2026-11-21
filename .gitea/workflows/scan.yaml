@@ -11,4 +11,4 @@ jobs:
       - name: Build image and scan for HIGH/CRITICAL vulnerabilities
         run: |
           docker build -f Dockerfile -t meishiapi-scan:local .
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed meishiapi-scan:local
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.2 image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed meishiapi-scan:local
